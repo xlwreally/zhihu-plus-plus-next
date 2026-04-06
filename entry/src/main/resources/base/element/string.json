@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "Zhihu++ NEXT"
+    },
+    {
+      "name": "module_desc",
+      "value": "Zhihu++ HarmonyOS NEXT migration scaffold"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Main entry ability for the HarmonyOS NEXT scaffold"
+    }
+  ]
+}
