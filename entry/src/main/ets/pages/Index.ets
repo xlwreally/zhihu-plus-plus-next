@@ -18,8 +18,8 @@ interface DailySection {
   readonly stories: DailyStory[];
 }
 
-const TOP_BAR_BASE_PADDING: number = 18;
-const TOP_BAR_SCROLL_INSET: number = 76;
+const TOP_BAR_BASE_PADDING: number = 10;
+const TOP_BAR_SCROLL_INSET: number = 68;
 const BOTTOM_PORTAL_BAR_CONTENT_INSET: number = 84;
 const BOTTOM_PORTAL_BAR_BASE_OFFSET: number = 8;
 const SEARCH_PAGE_URL: string = 'https://www.zhihu.com/search?type=content&q=';
@@ -294,9 +294,9 @@ struct Index {
         Stack() {
           Row() {
             Column()
-              .width(210)
-              .height(56)
-              .borderRadius(28)
+              .width(196)
+              .height(48)
+              .borderRadius(24)
               .backgroundColor('#01FFFFFF')
               .shadow({
                 radius: 34,
@@ -309,9 +309,9 @@ struct Index {
               .layoutWeight(1)
 
             Column()
-              .width(56)
-              .height(56)
-              .borderRadius(28)
+              .width(48)
+              .height(48)
+              .borderRadius(24)
               .backgroundColor('#01FFFFFF')
               .shadow({
                 radius: 26,
@@ -321,19 +321,19 @@ struct Index {
               })
           }
           .width('100%')
-          .padding({ left: 4, right: 4, top: 4, bottom: 4 })
+          .padding({ left: 4, right: 4, top: 3, bottom: 3 })
 
           Row({ space: 12 }) {
             Row({ space: 10 }) {
               Text('⌕')
-                .fontSize(16)
+                .fontSize(15)
                 .fontWeight(FontWeight.Medium)
                 .fontColor($r('app.color.text_secondary'))
                 .width(16)
                 .textAlign(TextAlign.Center)
 
               Text('搜索')
-                .fontSize(15)
+                .fontSize(14)
                 .fontWeight(FontWeight.Medium)
                 .fontColor($r('app.color.text_secondary'))
                 .layoutWeight(1)
@@ -341,8 +341,8 @@ struct Index {
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
             }
             .layoutWeight(1)
-            .height(54)
-            .padding({ left: 16, right: 16 })
+            .height(46)
+            .padding({ left: 14, right: 14 })
             .backgroundColor('#66FFFFFF')
             .backgroundBlurStyle(BlurStyle.Thick)
             .border({
@@ -363,45 +363,45 @@ struct Index {
             Stack({ alignContent: Alignment.TopEnd }) {
               if (this.sessionSnapshot.avatarUrl.length > 0) {
                 Image(this.sessionSnapshot.avatarUrl)
-                  .width(42)
-                  .height(42)
+                  .width(36)
+                  .height(36)
                   .objectFit(ImageFit.Cover)
-                  .borderRadius(21)
+                  .borderRadius(18)
                   .clip(true)
               } else {
                 Column() {
                   Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
-                    .fontSize(16)
+                    .fontSize(14)
                     .fontWeight(FontWeight.Bold)
                     .fontColor($r('app.color.action_text'))
                 }
-                .width(42)
-                .height(42)
+                .width(36)
+                .height(36)
                 .justifyContent(FlexAlign.Center)
                 .alignItems(HorizontalAlign.Center)
                 .backgroundColor($r('app.color.action_background'))
-                .borderRadius(21)
+                .borderRadius(18)
               }
 
               if (this.sessionSnapshot.loggedIn) {
                 Column()
-                  .width(9)
-                  .height(9)
+                  .width(8)
+                  .height(8)
                   .backgroundColor('#FF5A5F')
-                  .borderRadius(5)
+                  .borderRadius(4)
                   .margin({ top: 1, right: 1 })
               }
             }
-            .width(54)
-            .height(54)
-            .padding(6)
+            .width(46)
+            .height(46)
+            .padding(5)
             .backgroundColor('#73FFFFFF')
             .backgroundBlurStyle(BlurStyle.Thick)
             .border({
               width: 1,
               color: '#52FFFFFF'
             })
-            .borderRadius(27)
+            .borderRadius(23)
             .shadow({
               radius: 18,
               color: '#16000000',
@@ -416,17 +416,17 @@ struct Index {
           .width('100%')
         }
         .width('100%')
-        .padding(12)
+        .padding({ left: 10, right: 10, top: 8, bottom: 8 })
       }
       .backgroundColor('#99FFFFFF')
-      .backgroundBlurStyle(BlurStyle.Thick)
-      .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 10 })
+      .backdropBlur(36)
+      .padding({ left: 16, right: 16, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 6 })
       .width('100%')
     } else {
       Stack() {
         Column({ space: 2 }) {
           Text(this.portalTitle(this.selectedPortalTab))
-            .fontSize(28)
+            .fontSize(24)
             .fontWeight(FontWeight.Bold)
             .fontColor($r('app.color.text_primary'))
 
@@ -436,11 +436,11 @@ struct Index {
         }
         .alignItems(HorizontalAlign.Start)
         .width('100%')
-        .padding({ left: 18, right: 18, top: 14, bottom: 14 })
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
       }
       .backgroundColor('#96FFFFFF')
-      .backgroundBlurStyle(BlurStyle.Thick)
-      .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 16 })
+      .backdropBlur(32)
+      .padding({ left: 16, right: 16, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 10 })
       .width('100%')
     }
   }
