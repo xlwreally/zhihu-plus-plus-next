@@ -1,5 +1,5 @@
 import common from '@ohos.app.ability.common';
-import { router } from '@kit.ArkUI';
+import { promptAction, router } from '@kit.ArkUI';
 import { DailyService, DailyStoriesPage, DailyStory } from '../services/DailyService';
 import { DEFAULT_SESSION_SNAPSHOT, HomeFeedItem, SessionSnapshot } from '../models/ZhihuModels';
 import { HomeFeedService } from '../services/HomeFeedService';
@@ -19,6 +19,7 @@ interface DailySection {
 }
 
 const TOP_BAR_BASE_PADDING: number = 18;
+const TOP_BAR_SCROLL_INSET: number = 76;
 const BOTTOM_PORTAL_BAR_CONTENT_INSET: number = 84;
 const BOTTOM_PORTAL_BAR_BASE_OFFSET: number = 8;
 const SEARCH_PAGE_URL: string = 'https://www.zhihu.com/search?type=content&q=';
@@ -156,6 +157,27 @@ struct Index {
     this.openWebContent(data.self?.name ?? '我的主页', `https://www.zhihu.com/people/${urlToken}`);
   }
 
+  private refreshHomeFromPanel(): void {
+    this.showHomeAccountPanel = false;
+    this.homeItems = [];
+    this.homeError = '';
+    this.homeNextUrl = '';
+    this.homeHasLoaded = false;
+    this.loadHomeFirstPage();
+  }
+
+  private openProjectRepository(): void {
+    this.showHomeAccountPanel = false;
+    this.openWebContent('知乎++ 项目地址', 'https://github.com/zly2006/zhihu-plus-plus');
+  }
+
+  private showPendingSettingToast(message: string): void {
+    promptAction.showToast({
+      message,
+      duration: 1800
+    });
+  }
+
   private logout(): void {
     ZhihuSessionRepository.clear(this.context());
     this.showHomeAccountPanel = false;
@@ -261,243 +283,398 @@ struct Index {
     }
   }
 
+  private topBarScrollInset(): number {
+    return this.topSafeAreaVp + TOP_BAR_SCROLL_INSET;
+  }
+
   @Builder
   private TopBar(): void {
     if (this.selectedPortalTab === 'home') {
       Stack() {
-        Row() {
-          Column()
-            .width(210)
-            .height(56)
-            .borderRadius(28)
-            .backgroundColor('#01FFFFFF')
+        Stack() {
+          Row() {
+            Column()
+              .width(210)
+              .height(56)
+              .borderRadius(28)
+              .backgroundColor('#01FFFFFF')
+              .shadow({
+                radius: 34,
+                color: '#55A8D8FF',
+                offsetX: -10,
+                offsetY: 8
+              })
+
+            Blank()
+              .layoutWeight(1)
+
+            Column()
+              .width(56)
+              .height(56)
+              .borderRadius(28)
+              .backgroundColor('#01FFFFFF')
+              .shadow({
+                radius: 26,
+                color: '#40FFFFFF',
+                offsetX: 6,
+                offsetY: -4
+              })
+          }
+          .width('100%')
+          .padding({ left: 4, right: 4, top: 4, bottom: 4 })
+
+          Row({ space: 12 }) {
+            Row({ space: 10 }) {
+              Text('⌕')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_secondary'))
+                .width(16)
+                .textAlign(TextAlign.Center)
+
+              Text('搜索')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_secondary'))
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .layoutWeight(1)
+            .height(54)
+            .padding({ left: 16, right: 16 })
+            .backgroundColor('#66FFFFFF')
+            .backgroundBlurStyle(BlurStyle.Thick)
+            .border({
+              width: 1,
+              color: '#4DFFFFFF'
+            })
+            .borderRadius(27)
             .shadow({
-              radius: 34,
-              color: '#55A8D8FF',
-              offsetX: -10,
+              radius: 18,
+              color: '#1A2E6B9A',
+              offsetX: 0,
               offsetY: 8
             })
-
-          Blank()
-            .layoutWeight(1)
-
-          Column()
-            .width(56)
-            .height(56)
-            .borderRadius(28)
-            .backgroundColor('#01FFFFFF')
-            .shadow({
-              radius: 26,
-              color: '#40FFFFFF',
-              offsetX: 6,
-              offsetY: -4
+            .onClick(() => {
+              this.openSearchPage();
             })
-        }
-        .width('100%')
-        .padding({ left: 4, right: 4, top: 4, bottom: 4 })
 
-        Row({ space: 12 }) {
-          Row({ space: 10 }) {
-            Text('⌕')
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_secondary'))
-              .width(16)
-              .textAlign(TextAlign.Center)
-
-            Text('搜索')
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_secondary'))
-              .layoutWeight(1)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-          }
-          .layoutWeight(1)
-          .height(54)
-          .padding({ left: 16, right: 16 })
-          .backgroundColor('#66FFFFFF')
-          .backgroundBlurStyle(BlurStyle.Thick)
-          .border({
-            width: 1,
-            color: '#4DFFFFFF'
-          })
-          .borderRadius(27)
-          .shadow({
-            radius: 18,
-            color: '#1A2E6B9A',
-            offsetX: 0,
-            offsetY: 8
-          })
-          .onClick(() => {
-            this.openSearchPage();
-          })
-
-          Stack({ alignContent: Alignment.TopEnd }) {
-            if (this.sessionSnapshot.avatarUrl.length > 0) {
-              Image(this.sessionSnapshot.avatarUrl)
+            Stack({ alignContent: Alignment.TopEnd }) {
+              if (this.sessionSnapshot.avatarUrl.length > 0) {
+                Image(this.sessionSnapshot.avatarUrl)
+                  .width(42)
+                  .height(42)
+                  .objectFit(ImageFit.Cover)
+                  .borderRadius(21)
+                  .clip(true)
+              } else {
+                Column() {
+                  Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
+                    .fontSize(16)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor($r('app.color.action_text'))
+                }
                 .width(42)
                 .height(42)
-                .objectFit(ImageFit.Cover)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+                .backgroundColor($r('app.color.action_background'))
                 .borderRadius(21)
-                .clip(true)
-            } else {
-              Column() {
-                Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
-                  .fontSize(16)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor($r('app.color.action_text'))
               }
-              .width(42)
-              .height(42)
-              .justifyContent(FlexAlign.Center)
-              .alignItems(HorizontalAlign.Center)
-              .backgroundColor($r('app.color.action_background'))
-              .borderRadius(21)
-            }
 
-            if (this.sessionSnapshot.loggedIn) {
-              Column()
-                .width(9)
-                .height(9)
-                .backgroundColor('#FF5A5F')
-                .borderRadius(5)
-                .margin({ top: 1, right: 1 })
+              if (this.sessionSnapshot.loggedIn) {
+                Column()
+                  .width(9)
+                  .height(9)
+                  .backgroundColor('#FF5A5F')
+                  .borderRadius(5)
+                  .margin({ top: 1, right: 1 })
+              }
             }
+            .width(54)
+            .height(54)
+            .padding(6)
+            .backgroundColor('#73FFFFFF')
+            .backgroundBlurStyle(BlurStyle.Thick)
+            .border({
+              width: 1,
+              color: '#52FFFFFF'
+            })
+            .borderRadius(27)
+            .shadow({
+              radius: 18,
+              color: '#16000000',
+              offsetX: 0,
+              offsetY: 8
+            })
+            .onClick(() => {
+              this.showHomeAccountPanel = !this.showHomeAccountPanel;
+            })
           }
-          .width(54)
-          .height(54)
-          .padding(6)
-          .backgroundColor('#73FFFFFF')
-          .backgroundBlurStyle(BlurStyle.Thick)
-          .border({
-            width: 1,
-            color: '#52FFFFFF'
-          })
-          .borderRadius(27)
-          .shadow({
-            radius: 18,
-            color: '#16000000',
-            offsetX: 0,
-            offsetY: 8
-          })
-          .onClick(() => {
-            this.showHomeAccountPanel = !this.showHomeAccountPanel;
-          })
+          .alignItems(VerticalAlign.Center)
+          .width('100%')
         }
-        .alignItems(VerticalAlign.Center)
         .width('100%')
+        .padding(12)
       }
+      .backgroundColor('#99FFFFFF')
+      .backgroundBlurStyle(BlurStyle.Thick)
       .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 10 })
       .width('100%')
     } else {
-      Column({ space: 2 }) {
-        Text(this.portalTitle(this.selectedPortalTab))
-          .fontSize(28)
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
+      Stack() {
+        Column({ space: 2 }) {
+          Text(this.portalTitle(this.selectedPortalTab))
+            .fontSize(28)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
 
-        Text(this.topBarSubtitle())
-          .fontSize(12)
-          .fontColor($r('app.color.text_secondary'))
+          Text(this.topBarSubtitle())
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        .padding({ left: 18, right: 18, top: 14, bottom: 14 })
       }
-      .alignItems(HorizontalAlign.Start)
+      .backgroundColor('#96FFFFFF')
+      .backgroundBlurStyle(BlurStyle.Thick)
       .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 16 })
       .width('100%')
     }
   }
 
   @Builder
-  private HomeAccountPanel(): void {
-    Column({ space: 14 }) {
-      Row({ space: 12 }) {
-        if (this.sessionSnapshot.avatarUrl.length > 0) {
-          Image(this.sessionSnapshot.avatarUrl)
-            .width(46)
-            .height(46)
-            .objectFit(ImageFit.Cover)
-            .borderRadius(23)
-            .clip(true)
-        } else {
-          Column() {
-            Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
-              .fontSize(16)
-              .fontWeight(FontWeight.Bold)
-              .fontColor($r('app.color.action_text'))
-          }
-          .width(46)
-          .height(46)
-          .justifyContent(FlexAlign.Center)
-          .alignItems(HorizontalAlign.Center)
-          .backgroundColor($r('app.color.action_background'))
-          .borderRadius(23)
-        }
-
-        Column({ space: 4 }) {
-          Text(this.sessionSnapshot.accountName)
-            .fontSize(17)
+  private HomeAccountSheet(): void {
+    Scroll() {
+      Column({ space: 20 }) {
+        Column({ space: 6 }) {
+          Text('账号与设置')
+            .fontSize(24)
             .fontWeight(FontWeight.Bold)
             .fontColor($r('app.color.text_primary'))
 
-          Text(this.sessionSnapshot.loggedIn ? `已保存 ${this.sessionSnapshot.cookieCount} 个登录 Cookie` : '尚未登录知乎')
-            .fontSize(12)
+          Text(this.sessionSnapshot.loggedIn ? '主页入口、账号信息与常用设置' : '登录后可同步主页推荐流与账号信息')
+            .fontSize(13)
+            .lineHeight(18)
             .fontColor($r('app.color.text_secondary'))
         }
-        .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
-      }
-      .width('100%')
+        .width('100%')
 
-      Row({ space: 10 }) {
-        Text(this.sessionSnapshot.loggedIn ? '我的主页' : '登录知乎')
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.action_text'))
-          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-          .backgroundColor($r('app.color.action_background'))
-          .borderRadius(18)
-          .onClick(() => {
-            if (this.sessionSnapshot.loggedIn) {
-              this.openSelfPage();
+        Column({ space: 14 }) {
+          Row({ space: 12 }) {
+            if (this.sessionSnapshot.avatarUrl.length > 0) {
+              Image(this.sessionSnapshot.avatarUrl)
+                .width(54)
+                .height(54)
+                .objectFit(ImageFit.Cover)
+                .borderRadius(27)
+                .clip(true)
             } else {
-              this.showHomeAccountPanel = false;
-              this.openLoginPage();
+              Column() {
+                Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
+                  .fontSize(18)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.action_text'))
+              }
+              .width(54)
+              .height(54)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(HorizontalAlign.Center)
+              .backgroundColor($r('app.color.action_background'))
+              .borderRadius(27)
             }
-          })
 
-        if (this.sessionSnapshot.loggedIn) {
-          Text('退出登录')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor($r('app.color.error_text'))
-            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-            .backgroundColor($r('app.color.card_background'))
-            .border({
-              width: 1,
-              color: $r('app.color.card_border')
-            })
-            .borderRadius(18)
-            .onClick(() => {
-              this.logout();
-            })
+            Column({ space: 4 }) {
+              Text(this.sessionSnapshot.accountName)
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.text_primary'))
+
+              Text(this.sessionSnapshot.loggedIn ? `已保存 ${this.sessionSnapshot.cookieCount} 个登录 Cookie` : '尚未登录知乎账号')
+                .fontSize(12)
+                .lineHeight(18)
+                .fontColor($r('app.color.text_secondary'))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+          }
+          .width('100%')
+
+          Row({ space: 10 }) {
+            Text(this.sessionSnapshot.loggedIn ? '我的主页' : '登录知乎')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.action_text'))
+              .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+              .backgroundColor($r('app.color.action_background'))
+              .borderRadius(18)
+              .onClick(() => {
+                if (this.sessionSnapshot.loggedIn) {
+                  this.openSelfPage();
+                } else {
+                  this.showHomeAccountPanel = false;
+                  this.openLoginPage();
+                }
+              })
+
+            Text('刷新主页')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+              .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+              .backgroundColor($r('app.color.card_background'))
+              .border({
+                width: 1,
+                color: $r('app.color.card_border')
+              })
+              .borderRadius(18)
+              .onClick(() => {
+                this.refreshHomeFromPanel();
+              })
+
+            if (this.sessionSnapshot.loggedIn) {
+              Text('退出登录')
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.error_text'))
+                .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                .backgroundColor('#FFF7F7')
+                .border({
+                  width: 1,
+                  color: '#F4D4D6'
+                })
+                .borderRadius(18)
+                .onClick(() => {
+                  this.logout();
+                })
+            }
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
         }
+        .width('100%')
+        .padding(16)
+        .backgroundColor('#FFFFFFFF')
+        .borderRadius(24)
+        .border({
+          width: 1,
+          color: '#EEF2F7'
+        })
+
+        Column({ space: 12 }) {
+          Text('快捷入口')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_secondary'))
+            .padding({ left: 4 })
+
+          Column({ space: 2 }) {
+            Row({ space: 12 }) {
+              Column({ space: 4 }) {
+                Text('外观与阅读体验')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.text_primary'))
+
+                Text('主题、字体与界面细节正在迁移')
+                  .fontSize(12)
+                  .lineHeight(18)
+                  .fontColor($r('app.color.text_secondary'))
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              Text('待迁移')
+                .fontSize(12)
+                .fontColor($r('app.color.action_text'))
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+            .backgroundColor('#FFFFFFFF')
+            .borderRadius(20)
+            .onClick(() => {
+              this.showPendingSettingToast('外观设置页还在迁移中');
+            })
+
+            Row({ space: 12 }) {
+              Column({ space: 4 }) {
+                Text('推荐系统与内容过滤')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.text_primary'))
+
+                Text('推荐模式、过滤规则与屏蔽能力正在迁移')
+                  .fontSize(12)
+                  .lineHeight(18)
+                  .fontColor($r('app.color.text_secondary'))
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              Text('待迁移')
+                .fontSize(12)
+                .fontColor($r('app.color.action_text'))
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+            .backgroundColor('#FFFFFFFF')
+            .borderRadius(20)
+            .onClick(() => {
+              this.showPendingSettingToast('推荐与过滤设置页还在迁移中');
+            })
+
+            Row({ space: 12 }) {
+              Column({ space: 4 }) {
+                Text('系统与更新')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.text_primary'))
+
+                Text('项目地址、更新策略与关于信息')
+                  .fontSize(12)
+                  .lineHeight(18)
+                  .fontColor($r('app.color.text_secondary'))
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              Text('打开')
+                .fontSize(12)
+                .fontColor($r('app.color.action_text'))
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+            .backgroundColor('#FFFFFFFF')
+            .borderRadius(20)
+            .onClick(() => {
+              this.openProjectRepository();
+            })
+          }
+          .width('100%')
+          .padding(6)
+          .backgroundColor('#F7F9FC')
+          .borderRadius(24)
+        }
+        .width('100%')
+
+        Column({ space: 8 }) {
+          Text('当前阶段先复用子项目的交互结构，具体设置子页会在后续逐步迁移。')
+            .fontSize(12)
+            .lineHeight(18)
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .width('100%')
+        .padding({ left: 4, right: 4, bottom: this.bottomSafeAreaVp + 12 })
       }
       .width('100%')
+      .padding({ left: 20, right: 20, top: 12, bottom: 8 })
     }
-    .width(260)
-    .padding(16)
-    .backgroundColor($r('app.color.card_background'))
-    .border({
-      width: 1,
-      color: $r('app.color.card_border')
-    })
-    .borderRadius(20)
-    .shadow({
-      radius: 18,
-      color: '#20000000',
-      offsetX: 0,
-      offsetY: 10
-    })
+    .scrollBar(BarState.Off)
+    .width('100%')
+    .backgroundColor('#F5F7FB')
   }
 
   @Builder
@@ -952,22 +1129,13 @@ struct Index {
         .backgroundColor($r('app.color.page_background'))
         .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
-      Column() {
-        this.TopBar()
-
-        if (this.selectedPortalTab === 'home' && this.showHomeAccountPanel) {
-          Row() {
-            Blank()
-              .layoutWeight(1)
-
-            this.HomeAccountPanel()
-          }
-          .width('100%')
-          .padding({ left: 20, right: 20, bottom: 8 })
-        }
-
+      Stack({ alignContent: Alignment.Top }) {
         Scroll() {
           Column() {
+            Column()
+              .width('100%')
+              .height(this.topBarScrollInset())
+
             this.ContentArea()
 
             Column()
@@ -981,6 +1149,9 @@ struct Index {
         })
         .width('100%')
         .layoutWeight(1)
+        .height('100%')
+
+        this.TopBar()
       }
       .width('100%')
       .height('100%')
@@ -995,5 +1166,15 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    .bindSheet($$this.showHomeAccountPanel, this.HomeAccountSheet(), {
+      showClose: false,
+      dragBar: true,
+      preferType: SheetType.BOTTOM,
+      detents: [540],
+      backgroundColor: '#F5F7FB',
+      onDisappear: () => {
+        this.showHomeAccountPanel = false;
+      }
+    })
   }
 }
