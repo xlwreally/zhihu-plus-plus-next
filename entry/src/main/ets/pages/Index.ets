@@ -248,6 +248,19 @@ struct Index {
     }
   }
 
+  private handleContentScrollEdge(side: Edge): void {
+    if (side !== Edge.Bottom) {
+      return;
+    }
+    if (this.selectedPortalTab === 'home' && this.homeHasLoaded && this.homeNextUrl.length > 0) {
+      this.loadMoreHome();
+      return;
+    }
+    if (this.selectedPortalTab === 'daily' && this.dailySections.length > 0 && this.nextDailyDate.length > 0) {
+      this.loadMoreDaily();
+    }
+  }
+
   @Builder
   private TopBar(): void {
     if (this.selectedPortalTab === 'home') {
@@ -963,6 +976,9 @@ struct Index {
           }
         }
         .scrollBar(BarState.Off)
+        .onScrollEdge((side: Edge) => {
+          this.handleContentScrollEdge(side);
+        })
         .width('100%')
         .layoutWeight(1)
       }
