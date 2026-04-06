@@ -2,6 +2,14 @@
 
 `zhihu-plus-plus-next` 是基于 [`zhihu-plus-plus`](https://github.com/zly2006/zhihu-plus-plus) 适配的 HarmonyOS NEXT 独立工程。
 
+## 来源与许可
+
+- 本仓库基于上游项目 [`zly2006/zhihu-plus-plus`](https://github.com/zly2006/zhihu-plus-plus) 二次开发。
+- 当前 HarmonyOS NEXT 适配工作由 `xlwreally` 于 `2026-04-06` 起在上游项目基础上进行。
+- 上游项目许可证为 `GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)`，本仓库沿用同一许可证发布。
+- 原项目的版权声明和许可证声明应继续保留；本仓库新增修改部分的版权归各自贡献者所有。
+- 本仓库与知乎官方无关联。
+
 ## 目标
 
 - 使用 Stage Model + ArkTS + 单 `entry` HAP
