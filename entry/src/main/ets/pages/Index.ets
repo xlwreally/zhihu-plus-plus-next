@@ -1,681 +1,935 @@
-import { FeedMode, MigrationModule, MigrationPhase, SessionSnapshot, SettingHint } from '../models/ZhihuModels';
-import { SessionStore } from '../services/SessionStore';
-import { formatTimestamp } from '../utils/Time';
+import common from '@ohos.app.ability.common';
+import { router } from '@kit.ArkUI';
+import { DailyService, DailyStoriesPage, DailyStory } from '../services/DailyService';
+import { DEFAULT_SESSION_SNAPSHOT, HomeFeedItem, SessionSnapshot } from '../models/ZhihuModels';
+import { HomeFeedService } from '../services/HomeFeedService';
+import { ZhihuSessionRepository } from '../services/ZhihuSessionRepository';
 
-type MainTabKey = 'overview' | 'modules' | 'settings';
+type AppPortalKey = 'home' | 'follow' | 'daily' | 'history';
 
-interface FeedModeOption {
-  readonly key: FeedMode;
+interface AppPortalOption {
+  readonly key: AppPortalKey;
   readonly title: string;
-  readonly summary: string;
 }
 
-interface MainTabOption {
-  readonly key: MainTabKey;
-  readonly title: string;
-  readonly subtitle: string;
+interface DailySection {
+  readonly date: string;
+  readonly stories: DailyStory[];
 }
 
-const FEED_MODE_OPTIONS: FeedModeOption[] = [
-  { key: 'mixed', title: '混合流', summary: '保留 Android 默认推荐策略，适合作为 Lite MVP 的默认入口。' },
-  { key: 'web', title: 'Web 流', summary: '优先迁移网页端 API 与签名链路，落地速度最快。' },
-  { key: 'android', title: '安卓流', summary: '预留模拟 Android 端接口的扩展位，后续按需接入。' },
-  { key: 'local', title: '本地流', summary: '留给本地爬取与排序引擎，建议在 MVP 完成后再迁。' }
-];
+const TOP_BAR_BASE_PADDING: number = 18;
+const BOTTOM_PORTAL_BAR_CONTENT_INSET: number = 84;
+const BOTTOM_PORTAL_BAR_BASE_OFFSET: number = 8;
+const SEARCH_PAGE_URL: string = 'https://www.zhihu.com/search?type=content&q=';
 
-const MAIN_TABS: MainTabOption[] = [
-  { key: 'overview', title: '概览', subtitle: '当前状态' },
-  { key: 'modules', title: '模块', subtitle: '迁移拆解' },
-  { key: 'settings', title: '设置', subtitle: '工程约束' }
+const APP_PORTAL_TABS: AppPortalOption[] = [
+  { key: 'home', title: '主页' },
+  { key: 'follow', title: '关注' },
+  { key: 'daily', title: '日报' },
+  { key: 'history', title: '历史' }
 ];
 
 @Entry
 @Component
 struct Index {
-  @State private selectedMainTab: MainTabKey = 'overview';
-  @State private selectedFeedMode: FeedMode = 'mixed';
-  @State private session: SessionSnapshot = SessionStore.snapshot();
-  @State private generatedAt: string = formatTimestamp(new Date());
-
-  private modules: MigrationModule[] = SessionStore.migrationModules();
-  private phases: MigrationPhase[] = SessionStore.migrationPhases();
-  private settingHints: SettingHint[] = SessionStore.settingHints();
+  @StorageProp('topSafeAreaVp') private topSafeAreaVp: number = 0;
+  @StorageProp('bottomSafeAreaVp') private bottomSafeAreaVp: number = 0;
+  @StorageProp('sessionSnapshot') private sessionSnapshot: SessionSnapshot = DEFAULT_SESSION_SNAPSHOT;
+  @State private selectedPortalTab: AppPortalKey = 'daily';
+  @State private dailySections: DailySection[] = [];
+  @State private dailyLoading: boolean = false;
+  @State private dailyLoadingMore: boolean = false;
+  @State private dailyError: string = '';
+  @State private nextDailyDate: string = '';
+  @State private homeItems: HomeFeedItem[] = [];
+  @State private homeLoading: boolean = false;
+  @State private homeLoadingMore: boolean = false;
+  @State private homeError: string = '';
+  @State private homeNextUrl: string = '';
+  @State private homeHasLoaded: boolean = false;
+  @State private showHomeAccountPanel: boolean = false;
 
   aboutToAppear(): void {
-    this.refreshSnapshot();
+    ZhihuSessionRepository.load(this.context());
+    this.loadLatestDaily();
   }
 
-  private refreshSnapshot(): void {
-    this.session = SessionStore.snapshot();
-    this.selectedFeedMode = this.session.feedMode;
-    this.generatedAt = formatTimestamp(new Date());
+  onPageShow(): void {
+    if (this.selectedPortalTab === 'home' && this.sessionSnapshot.loggedIn && !this.homeHasLoaded) {
+      this.loadHomeFirstPage();
+    }
   }
 
-  private selectFeedMode(mode: FeedMode): void {
-    SessionStore.selectFeedMode(mode);
-    this.refreshSnapshot();
+  private context(): common.Context {
+    return getContext(this) as common.Context;
   }
 
-  private statusText(status: 'planned' | 'in-progress' | 'blocked'): string {
-    if (status === 'in-progress') {
-      return '进行中';
+  private portalTitle(tab: AppPortalKey): string {
+    if (tab === 'home') {
+      return '知乎首页';
     }
-    if (status === 'blocked') {
-      return '暂缓';
+    if (tab === 'daily') {
+      return '知乎日报';
     }
-    return '已规划';
+    const selected = APP_PORTAL_TABS.find((item: AppPortalOption) => item.key === tab);
+    if (selected !== undefined) {
+      return selected.title;
+    }
+    return '知乎日报';
   }
 
-  private statusTint(status: 'planned' | 'in-progress' | 'blocked'): string {
-    if (status === 'in-progress') {
-      return '#E6ECFDF3';
+  private topBarSubtitle(): string {
+    if (this.selectedPortalTab === 'home') {
+      if (!this.sessionSnapshot.loggedIn) {
+        return '登录后查看真实推荐流';
+      }
+      if (this.homeLoading && !this.homeHasLoaded) {
+        return '正在同步知乎推荐流';
+      }
+      return this.sessionSnapshot.accountName;
     }
-    if (status === 'blocked') {
-      return '#FFFCE8E6';
+    if (this.selectedPortalTab !== 'daily') {
+      return this.portalPlaceholder(this.selectedPortalTab);
     }
-    return '#E8EEF5FF';
+    if (this.dailySections.length > 0) {
+      return this.dateLabel(this.dailySections[0].date);
+    }
+    return '正在同步知乎日报';
   }
 
-  private statusColor(status: 'planned' | 'in-progress' | 'blocked'): string {
-    if (status === 'in-progress') {
-      return '#0F9D58';
+  private portalPlaceholder(tab: AppPortalKey): string {
+    if (tab === 'home') {
+      return '主页推荐流待加载';
     }
-    if (status === 'blocked') {
-      return '#D93025';
+    if (tab === 'follow') {
+      return '关注入口待迁移';
     }
-    return '#1856D6';
+    return '历史入口待迁移';
+  }
+
+  private dateLabel(date: string): string {
+    if (date.length === 8) {
+      return `${date.slice(4, 6)} 月 ${date.slice(6, 8)} 日`;
+    }
+    return date;
+  }
+
+  private openLoginPage(): void {
+    router.pushUrl({
+      url: 'pages/Login'
+    });
+  }
+
+  private openWebContent(title: string, url: string): void {
+    if (url.length === 0) {
+      return;
+    }
+    router.pushUrl({
+      url: 'pages/WebContent',
+      params: { title, url }
+    });
+  }
+
+  private openSearchPage(): void {
+    this.openWebContent('搜索', SEARCH_PAGE_URL);
+  }
+
+  private openSelfPage(): void {
+    const data = ZhihuSessionRepository.load(this.context());
+    const urlToken = data.self?.urlToken ?? '';
+    if (urlToken.length === 0) {
+      return;
+    }
+    this.showHomeAccountPanel = false;
+    this.openWebContent(data.self?.name ?? '我的主页', `https://www.zhihu.com/people/${urlToken}`);
+  }
+
+  private logout(): void {
+    ZhihuSessionRepository.clear(this.context());
+    this.showHomeAccountPanel = false;
+    this.homeItems = [];
+    this.homeError = '';
+    this.homeNextUrl = '';
+    this.homeHasLoaded = false;
+  }
+
+  private async loadHomeFirstPage(): Promise<void> {
+    if (this.homeLoading || !this.sessionSnapshot.loggedIn) {
+      return;
+    }
+    this.homeLoading = true;
+    this.homeError = '';
+    try {
+      const page = await HomeFeedService.loadFirstPage(this.context());
+      this.homeItems = page.items;
+      this.homeNextUrl = page.paging.nextUrl;
+      this.homeHasLoaded = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.homeError = `主页加载失败：${message}`;
+    } finally {
+      this.homeLoading = false;
+    }
+  }
+
+  private async loadMoreHome(): Promise<void> {
+    if (this.homeLoadingMore || this.homeNextUrl.length === 0) {
+      return;
+    }
+    this.homeLoadingMore = true;
+    try {
+      const page = await HomeFeedService.loadNextPage(this.context(), this.homeNextUrl);
+      const existed = new Set<string>(this.homeItems.map((item: HomeFeedItem) => item.id));
+      const merged = [...this.homeItems];
+      page.items.forEach((item: HomeFeedItem) => {
+        if (!existed.has(item.id)) {
+          merged.push(item);
+        }
+      });
+      this.homeItems = merged;
+      this.homeNextUrl = page.paging.nextUrl;
+      this.homeError = '';
+      this.homeHasLoaded = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.homeError = `主页继续加载失败：${message}`;
+    } finally {
+      this.homeLoadingMore = false;
+    }
+  }
+
+  private async loadLatestDaily(): Promise<void> {
+    if (this.dailyLoading) {
+      return;
+    }
+
+    this.dailyLoading = true;
+    this.dailyError = '';
+    try {
+      const page: DailyStoriesPage = await DailyService.loadLatest();
+      this.dailySections = [page];
+      this.nextDailyDate = page.date;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.dailyError = `日报加载失败：${message}`;
+    } finally {
+      this.dailyLoading = false;
+    }
+  }
+
+  private async loadMoreDaily(): Promise<void> {
+    if (this.dailyLoadingMore || this.nextDailyDate.length === 0) {
+      return;
+    }
+
+    this.dailyLoadingMore = true;
+    try {
+      const page: DailyStoriesPage = await DailyService.loadBefore(this.nextDailyDate);
+      this.dailySections = [...this.dailySections, page];
+      this.nextDailyDate = page.date;
+      this.dailyError = '';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.dailyError = `日报继续加载失败：${message}`;
+    } finally {
+      this.dailyLoadingMore = false;
+    }
   }
 
   @Builder
-  private BackgroundLayer(): void {
-    Stack({ alignContent: Alignment.TopStart }) {
-      Column()
-        .width('88%')
-        .height(300)
-        .margin({ left: 18, top: 6 })
-        .backgroundColor('#364F87FF')
-        .borderRadius(64)
+  private TopBar(): void {
+    if (this.selectedPortalTab === 'home') {
+      Column({ space: 10 }) {
+        Text(this.portalTitle(this.selectedPortalTab))
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
 
-      Column()
-        .width('46%')
-        .height(220)
-        .margin({ left: 252, top: 36 })
-        .backgroundColor('#286AD8FF')
-        .borderRadius(52)
+        Row() {
+          Row({ space: 12 }) {
+            Text('搜')
+              .fontSize(14)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_secondary'))
+              .width(20)
+              .textAlign(TextAlign.Center)
 
-      Column()
-        .width('58%')
-        .height(180)
-        .margin({ left: 22, top: 210 })
-        .backgroundColor('#2CC4E8E8')
-        .borderRadius(44)
+            Column({ space: 2 }) {
+              Text('搜索')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_secondary'))
 
-      Column()
-        .width('72%')
-        .height(260)
-        .margin({ left: 112, top: 460 })
-        .backgroundColor('#14FFFFFF')
-        .borderRadius(60)
+              Text(this.topBarSubtitle())
+                .fontSize(11)
+                .fontColor($r('app.color.text_tertiary'))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+          }
+          .layoutWeight(1)
+          .height(64)
+          .padding({ left: 18, right: 10 })
+          .backgroundColor($r('app.color.card_background'))
+          .border({
+            width: 1,
+            color: $r('app.color.card_border')
+          })
+          .borderRadius(32)
+          .onClick(() => {
+            this.openSearchPage();
+          })
+
+          Stack({ alignContent: Alignment.TopEnd }) {
+            if (this.sessionSnapshot.avatarUrl.length > 0) {
+              Image(this.sessionSnapshot.avatarUrl)
+                .width(50)
+                .height(50)
+                .objectFit(ImageFit.Cover)
+                .borderRadius(25)
+                .clip(true)
+            } else {
+              Column() {
+                Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
+                  .fontSize(18)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.action_text'))
+              }
+              .width(50)
+              .height(50)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(HorizontalAlign.Center)
+              .backgroundColor($r('app.color.action_background'))
+              .borderRadius(25)
+            }
+
+            if (this.sessionSnapshot.loggedIn) {
+              Column()
+                .width(10)
+                .height(10)
+                .backgroundColor('#FF5A5F')
+                .borderRadius(5)
+                .margin({ top: 2, right: 2 })
+            }
+          }
+          .width(64)
+          .height(64)
+          .padding(7)
+          .backgroundColor($r('app.color.card_background'))
+          .border({
+            width: 1,
+            color: $r('app.color.card_border')
+          })
+          .borderRadius(32)
+          .onClick(() => {
+            this.showHomeAccountPanel = !this.showHomeAccountPanel;
+          })
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 16 })
+      .width('100%')
+    } else {
+      Column({ space: 2 }) {
+        Text(this.portalTitle(this.selectedPortalTab))
+          .fontSize(28)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+
+        Text(this.topBarSubtitle())
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 16 })
+      .width('100%')
     }
-    .width('100%')
-    .height('100%')
   }
 
   @Builder
-  private TopChrome(): void {
+  private HomeAccountPanel(): void {
     Column({ space: 14 }) {
-      Column({ space: 8 }) {
-        Row({ space: 8 }) {
-          Text('Zhihu++')
-            .fontSize(32)
+      Row({ space: 12 }) {
+        if (this.sessionSnapshot.avatarUrl.length > 0) {
+          Image(this.sessionSnapshot.avatarUrl)
+            .width(46)
+            .height(46)
+            .objectFit(ImageFit.Cover)
+            .borderRadius(23)
+            .clip(true)
+        } else {
+          Column() {
+            Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.action_text'))
+          }
+          .width(46)
+          .height(46)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(23)
+        }
+
+        Column({ space: 4 }) {
+          Text(this.sessionSnapshot.accountName)
+            .fontSize(17)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#0F172A')
-          Text('NEXT')
+            .fontColor($r('app.color.text_primary'))
+
+          Text(this.sessionSnapshot.loggedIn ? `已保存 ${this.sessionSnapshot.cookieCount} 个登录 Cookie` : '尚未登录知乎')
+            .fontSize(12)
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+
+      Row({ space: 10 }) {
+        Text(this.sessionSnapshot.loggedIn ? '我的主页' : '登录知乎')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.action_text'))
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .onClick(() => {
+            if (this.sessionSnapshot.loggedIn) {
+              this.openSelfPage();
+            } else {
+              this.showHomeAccountPanel = false;
+              this.openLoginPage();
+            }
+          })
+
+        if (this.sessionSnapshot.loggedIn) {
+          Text('退出登录')
             .fontSize(14)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#0A59F7')
-            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-            .backgroundColor('#E7F0FF')
-            .borderRadius(16)
-        }
-
-        Text('按 HarmonyOS NEXT 的 Stage 模型重建页面层，用蓝白主调、悬浮材质和超圆角卡片重做信息架构。')
-          .fontSize(14)
-          .lineHeight(22)
-          .fontColor('#334155')
-      }
-      .alignItems(HorizontalAlign.Start)
-
-      Row({ space: 10 }) {
-        Text(`预览 ${this.generatedAt}`)
-          .fontSize(12)
-          .fontColor('#1856D6')
-          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .backgroundColor('#EDF4FF')
-          .borderRadius(16)
-
-        Text('高级材质')
-          .fontSize(12)
-          .fontColor('#0E7490')
-          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .backgroundColor('#E8FBFF')
-          .borderRadius(16)
-
-        Text('Lite MVP')
-          .fontSize(12)
-          .fontColor('#0F9D58')
-          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .backgroundColor('#EAF9F0')
-          .borderRadius(16)
-      }
-
-      Row({ space: 8 }) {
-        ForEach(MAIN_TABS, (item: MainTabOption) => {
-          Column({ space: 4 }) {
-            Text(item.title)
-              .fontSize(15)
-              .fontWeight(this.selectedMainTab === item.key ? FontWeight.Bold : FontWeight.Medium)
-              .fontColor(this.selectedMainTab === item.key ? '#0A59F7' : '#475569')
-            Text(item.subtitle)
-              .fontSize(11)
-              .fontColor(this.selectedMainTab === item.key ? '#1856D6' : '#94A3B8')
-          }
-          .width('31%')
-          .padding({ top: 12, bottom: 12 })
-          .backgroundColor(this.selectedMainTab === item.key ? '#F7FBFF' : '#00FFFFFF')
-          .borderRadius(22)
-          .onClick(() => {
-            this.selectedMainTab = item.key;
-          })
-        }, (item: MainTabOption) => item.key)
-      }
-      .padding(8)
-      .backgroundColor('#A8FFFFFF')
-      .backgroundBlurStyle(BlurStyle.Thick)
-      .border({
-        width: 1,
-        color: '#5FFFFFFF'
-      })
-      .borderRadius(28)
-      .shadow({
-        radius: 20,
-        color: '#12003D9C',
-        offsetX: 0,
-        offsetY: 10
-      })
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: 18, right: 18, top: 26, bottom: 18 })
-    .margin({ left: 16, right: 16, top: 14 })
-    .backgroundColor('#B8FFFFFF')
-    .backgroundBlurStyle(BlurStyle.Thick)
-    .border({
-      width: 1,
-      color: '#78FFFFFF'
-    })
-    .borderRadius(34)
-    .shadow({
-      radius: 28,
-      color: '#180044B8',
-      offsetX: 0,
-      offsetY: 14
-    })
-  }
-
-  @Builder
-  private HeroPanel(): void {
-    Stack({ alignContent: Alignment.TopStart }) {
-      Column({ space: 18 }) {
-        Text('迁移不是兼容层，而是重新设计一套更适合鸿蒙的前台结构。')
-          .fontSize(26)
-          .fontWeight(FontWeight.Bold)
-          .lineHeight(34)
-          .fontColor('#F8FBFF')
-
-        Text('保留知乎协议、账号模型与过滤规则；重写导航、阅读页、系统交互与材质表达。')
-          .fontSize(14)
-          .lineHeight(22)
-          .fontColor('#DCEBFF')
-
-        Row({ space: 12 }) {
-          this.GlassTag('Stage 模型')
-          this.GlassTag('ArkTS')
-          this.GlassTag('蓝白悬浮')
-        }
-
-        Row({ space: 12 }) {
-          this.HeroMetric('登录层', '待迁')
-          this.HeroMetric('阅读壳', '预留')
-          this.HeroMetric('签名桥', '待接')
+            .fontColor($r('app.color.error_text'))
+            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+            .backgroundColor($r('app.color.card_background'))
+            .border({
+              width: 1,
+              color: $r('app.color.card_border')
+            })
+            .borderRadius(18)
+            .onClick(() => {
+              this.logout();
+            })
         }
       }
-      .alignItems(HorizontalAlign.Start)
-      .padding(22)
       .width('100%')
-      .backgroundColor('#284F87FF')
-      .borderRadius(34)
-
-      Column()
-        .width('62%')
-        .height(96)
-        .margin({ left: 128, top: 22 })
-        .backgroundColor('#24FFFFFF')
-        .borderRadius(28)
-
-      Column()
-        .width('36%')
-        .height(76)
-        .margin({ left: 20, top: 142 })
-        .backgroundColor('#2C6CEAF8')
-        .borderRadius(24)
     }
-    .margin({ left: 16, right: 16, top: 12, bottom: 14 })
-  }
-
-  @Builder
-  private GlassTag(title: string): void {
-    Text(title)
-      .fontSize(12)
-      .fontColor('#F8FBFF')
-      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-      .backgroundColor('#18FFFFFF')
-      .backgroundBlurStyle(BlurStyle.Thin)
-      .border({
-        width: 1,
-        color: '#34FFFFFF'
-      })
-      .borderRadius(16)
-  }
-
-  @Builder
-  private HeroMetric(label: string, value: string): void {
-    Column({ space: 4 }) {
-      Text(value)
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-      Text(label)
-        .fontSize(11)
-        .fontColor('#CFE2FF')
-    }
-    .layoutWeight(1)
-    .alignItems(HorizontalAlign.Start)
-    .padding({ top: 10, bottom: 10, left: 12, right: 12 })
-    .backgroundColor('#16FFFFFF')
-    .borderRadius(18)
-  }
-
-  @Builder
-  private SessionBoard(): void {
-    Column({ space: 16 }) {
-      this.SectionLabel('会话与能力', '把账号态、Cookie、推荐模式和平台能力拆成可替换的独立层。')
-
-      Row({ space: 10 }) {
-        this.StatusMetric('账号', this.session.accountName)
-        this.StatusMetric('Cookie', `${this.session.cookieCount}`)
-        this.StatusMetric('模式', this.session.feedMode.toUpperCase())
-      }
-
-      Row({ space: 10 }) {
-        this.CapabilityPill('签名桥', this.session.hasSigningBridge)
-        this.CapabilityPill('Web 阅读壳', this.session.hasWebReadingShell)
-        this.CapabilityPill('持久化', this.session.hasPersistentStorage)
-      }
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding(20)
-    .margin({ left: 16, right: 16, bottom: 12 })
-    .backgroundColor('#B8FFFFFF')
-    .backgroundBlurStyle(BlurStyle.Thick)
+    .width(260)
+    .padding(16)
+    .backgroundColor($r('app.color.card_background'))
     .border({
       width: 1,
-      color: '#6FFFFFFF'
+      color: $r('app.color.card_border')
     })
-    .borderRadius(30)
+    .borderRadius(20)
     .shadow({
       radius: 18,
-      color: '#140050B5',
+      color: '#20000000',
+      offsetX: 0,
+      offsetY: 10
+    })
+  }
+
+  @Builder
+  private DailySectionHeader(section: DailySection): void {
+    Row() {
+      Column()
+        .layoutWeight(1)
+        .height(1)
+        .backgroundColor($r('app.color.card_border'))
+
+      Text(this.dateLabel(section.date))
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.action_text'))
+        .margin({ left: 16, right: 16 })
+
+      Column()
+        .layoutWeight(1)
+        .height(1)
+        .backgroundColor($r('app.color.card_border'))
+    }
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 20, right: 20, top: 8, bottom: 10 })
+  }
+
+  @Builder
+  private DailyStoryCard(item: DailyStory): void {
+    Row({ space: 12 }) {
+      if (item.image !== undefined && item.image.length > 0) {
+        Image(item.image)
+          .width(104)
+          .height(92)
+          .objectFit(ImageFit.Cover)
+          .borderRadius(8)
+      }
+
+      Column({ space: 12 }) {
+        Text(item.title)
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .lineHeight(22)
+          .fontColor($r('app.color.text_primary'))
+          .maxLines(4)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+        Row({ space: 6 }) {
+          Column()
+            .width(6)
+            .height(6)
+            .backgroundColor($r('app.color.text_secondary'))
+            .borderRadius(3)
+
+          Text(item.hint)
+            .fontSize(12)
+            .lineHeight(16)
+            .fontColor($r('app.color.text_secondary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .alignItems(VerticalAlign.Center)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .justifyContent(FlexAlign.SpaceBetween)
+      .layoutWeight(1)
+      .constraintSize({
+        minHeight: item.image !== undefined && item.image.length > 0 ? 92 : 100
+      })
+    }
+    .alignItems(VerticalAlign.Center)
+    .width('100%')
+    .padding(12)
+    .margin({ left: 16, right: 16, bottom: 12 })
+    .backgroundColor($r('app.color.card_background'))
+    .border({
+      width: 1,
+      color: $r('app.color.card_border')
+    })
+    .borderRadius(12)
+    .clip(true)
+    .shadow({
+      radius: 8,
+      color: '#10000000',
+      offsetX: 0,
+      offsetY: 2
+    })
+    .onClick(() => {
+      this.openWebContent(item.title, item.url);
+    })
+  }
+
+  @Builder
+  private HomeFeedCard(item: HomeFeedItem): void {
+    Column({ space: 14 }) {
+      Row({ space: 12 }) {
+        if (item.authorAvatarUrl.length > 0) {
+          Image(item.authorAvatarUrl)
+            .width(42)
+            .height(42)
+            .objectFit(ImageFit.Cover)
+            .borderRadius(21)
+            .clip(true)
+        } else {
+          Column() {
+            Text(item.authorName.length > 0 ? item.authorName.slice(0, 1) : '知')
+              .fontSize(14)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.action_text'))
+          }
+          .width(42)
+          .height(42)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(21)
+        }
+
+        Column({ space: 2 }) {
+          Text(item.authorName.length > 0 ? item.authorName : '知乎推荐')
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_primary'))
+
+          Text(item.authorHeadline.length > 0 ? item.authorHeadline : item.actionText)
+            .fontSize(11)
+            .fontColor($r('app.color.text_secondary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+      }
+
+      Row({ space: 12 }) {
+        Column({ space: 10 }) {
+          Text(item.title)
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .lineHeight(26)
+            .fontColor($r('app.color.text_primary'))
+            .maxLines(3)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+
+          if (item.summary.length > 0) {
+            Text(item.summary)
+              .fontSize(13)
+              .lineHeight(20)
+              .fontColor($r('app.color.text_secondary'))
+              .maxLines(3)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+
+          Text(item.details)
+            .fontSize(12)
+            .fontColor($r('app.color.text_tertiary'))
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        if (item.thumbnailUrl.length > 0) {
+          Image(item.thumbnailUrl)
+            .width(104)
+            .height(104)
+            .objectFit(ImageFit.Cover)
+            .borderRadius(14)
+        }
+      }
+      .alignItems(VerticalAlign.Top)
+    }
+    .width('100%')
+    .padding(16)
+    .margin({ left: 16, right: 16, bottom: 12 })
+    .backgroundColor($r('app.color.card_background'))
+    .border({
+      width: 1,
+      color: $r('app.color.card_border')
+    })
+    .borderRadius(18)
+    .clip(true)
+    .shadow({
+      radius: 12,
+      color: '#10000000',
+      offsetX: 0,
+      offsetY: 3
+    })
+    .onClick(() => {
+      this.openWebContent(item.title, item.targetUrl);
+    })
+  }
+
+  @Builder
+  private HomePage(): void {
+    if (!this.sessionSnapshot.loggedIn) {
+      Column({ space: 14 }) {
+        Text('需要先登录知乎')
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+
+        Text('主页推荐流依赖登录 Cookie 和签名请求。')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+
+        Text('去登录')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.action_text'))
+          .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .onClick(() => {
+            this.openLoginPage();
+          })
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120, left: 30, right: 30 })
+    } else if (this.homeLoading && !this.homeHasLoaded) {
+      Column({ space: 10 }) {
+        Text('正在加载主页...')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+        Text('正在从知乎推荐接口拉取首页内容')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120 })
+    } else if (this.homeError.length > 0 && !this.homeHasLoaded) {
+      Column({ space: 12 }) {
+        Text(this.homeError)
+          .fontSize(15)
+          .fontColor($r('app.color.error_text'))
+
+        Text('重新加载')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.action_text'))
+          .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .onClick(() => {
+            this.loadHomeFirstPage();
+          })
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120 })
+    } else {
+      Column() {
+        ForEach(this.homeItems, (item: HomeFeedItem) => {
+          this.HomeFeedCard(item);
+        }, (item: HomeFeedItem) => item.id)
+
+        if (this.homeError.length > 0) {
+          Text(this.homeError)
+            .fontSize(12)
+            .fontColor($r('app.color.error_text'))
+            .padding({ left: 18, right: 18, top: 0, bottom: 10 })
+        }
+
+        Text(this.homeNextUrl.length === 0 ? '已经到底了' : (this.homeLoadingMore ? '正在加载更多...' : '加载更多'))
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(
+            this.homeNextUrl.length === 0 || this.homeLoadingMore
+              ? $r('app.color.text_tertiary')
+              : $r('app.color.action_text')
+          )
+          .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+          .margin({ top: 4, bottom: 20 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .enabled(this.homeNextUrl.length > 0 && !this.homeLoadingMore)
+          .onClick(() => {
+            this.loadMoreHome();
+          })
+      }
+    }
+  }
+
+  @Builder
+  private DailyPage(): void {
+    if (this.dailyLoading && this.dailySections.length === 0) {
+      Column({ space: 10 }) {
+        Text('正在加载日报...')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+        Text('正在从知乎日报接口拉取最新内容')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120 })
+    } else if (this.dailyError.length > 0 && this.dailySections.length === 0) {
+      Column({ space: 12 }) {
+        Text(this.dailyError)
+          .fontSize(15)
+          .fontColor($r('app.color.error_text'))
+
+        Text('重试')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.action_text'))
+          .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .onClick(() => {
+            this.loadLatestDaily();
+          })
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120 })
+    } else {
+      Column() {
+        ForEach(this.dailySections, (section: DailySection, sectionIndex: number) => {
+          Column() {
+            this.DailySectionHeader(section)
+
+            ForEach(section.stories, (story: DailyStory) => {
+              this.DailyStoryCard(story)
+            }, (story: DailyStory) => story.id)
+          }
+        }, (section: DailySection) => section.date)
+
+        if (this.dailyError.length > 0) {
+          Text(this.dailyError)
+            .fontSize(12)
+            .fontColor($r('app.color.error_text'))
+            .padding({ left: 18, right: 18, top: 0, bottom: 10 })
+        }
+
+        Text(this.dailyLoadingMore ? '正在加载更多...' : '加载更多')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.dailyLoadingMore ? $r('app.color.text_tertiary') : $r('app.color.action_text'))
+          .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+          .margin({ top: 4, bottom: 20 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .enabled(!this.dailyLoadingMore)
+          .onClick(() => {
+            this.loadMoreDaily();
+          })
+      }
+    }
+  }
+
+  @Builder
+  private PlaceholderPage(): void {
+    Column({ space: 12 }) {
+      Text(this.portalPlaceholder(this.selectedPortalTab))
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+
+      Text('当前先接入主页和日报，这个入口后续再迁。')
+        .fontSize(13)
+        .fontColor($r('app.color.text_secondary'))
+    }
+    .alignItems(HorizontalAlign.Center)
+    .justifyContent(FlexAlign.Center)
+    .width('100%')
+    .padding({ top: 120 })
+  }
+
+  @Builder
+  private ContentArea(): void {
+    if (this.selectedPortalTab === 'home') {
+      this.HomePage();
+    } else if (this.selectedPortalTab === 'daily') {
+      this.DailyPage();
+    } else {
+      this.PlaceholderPage();
+    }
+  }
+
+  @Builder
+  private PortalTab(item: AppPortalOption): void {
+    Column() {
+      Text(item.title)
+        .fontSize(14)
+        .fontWeight(this.selectedPortalTab === item.key ? FontWeight.Bold : FontWeight.Medium)
+        .fontColor(this.selectedPortalTab === item.key ? $r('app.color.tab_selected_text') : $r('app.color.text_secondary'))
+    }
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .layoutWeight(1)
+    .height(44)
+    .backgroundColor(this.selectedPortalTab === item.key ? $r('app.color.tab_selected_background') : '#00000000')
+    .backgroundBlurStyle(this.selectedPortalTab === item.key ? BlurStyle.Thick : BlurStyle.Thin)
+    .border({
+      width: this.selectedPortalTab === item.key ? 1 : 0,
+      color: this.selectedPortalTab === item.key ? $r('app.color.tab_selected_border') : '#00000000'
+    })
+    .borderRadius(18)
+    .onClick(() => {
+      this.selectedPortalTab = item.key;
+      this.showHomeAccountPanel = false;
+      if (item.key === 'home') {
+        if (!this.sessionSnapshot.loggedIn) {
+          this.openLoginPage();
+        } else if (!this.homeHasLoaded) {
+          this.loadHomeFirstPage();
+        }
+      } else if (item.key === 'daily' && this.dailySections.length === 0) {
+        this.loadLatestDaily();
+      }
+    })
+  }
+
+  @Builder
+  private BottomPortalBar(): void {
+    Row({ space: 8 }) {
+      ForEach(APP_PORTAL_TABS, (item: AppPortalOption) => {
+        this.PortalTab(item)
+      }, (item: AppPortalOption) => item.key)
+    }
+    .padding({ left: 10, right: 10, top: 10, bottom: 6 })
+    .margin({ left: 16, right: 16, bottom: 0 })
+    .backgroundColor($r('app.color.tab_bar_background'))
+    .backgroundBlurStyle(BlurStyle.Thick)
+    .border({
+      width: 1,
+      color: $r('app.color.tab_bar_border')
+    })
+    .borderRadius(24)
+    .shadow({
+      radius: 18,
+      color: '#10000000',
       offsetX: 0,
       offsetY: 8
     })
   }
 
-  @Builder
-  private SectionLabel(title: string, summary: string): void {
-    Column({ space: 6 }) {
-      Text(title)
-        .fontSize(21)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#0F172A')
-      Text(summary)
-        .fontSize(13)
-        .lineHeight(21)
-        .fontColor('#475569')
-    }
-    .alignItems(HorizontalAlign.Start)
-  }
-
-  @Builder
-  private StatusMetric(label: string, value: string): void {
-    Column({ space: 5 }) {
-      Text(value)
-        .fontSize(17)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#0F172A')
-      Text(label)
-        .fontSize(11)
-        .fontColor('#64748B')
-    }
-    .layoutWeight(1)
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: 14, right: 14, top: 14, bottom: 14 })
-    .backgroundColor('#F8FBFF')
-    .borderRadius(22)
-  }
-
-  @Builder
-  private CapabilityPill(title: string, enabled: boolean): void {
-    Text(`${title} ${enabled ? '已预留' : '未接入'}`)
-      .fontSize(12)
-      .fontColor(enabled ? '#0F9D58' : '#9A3412')
-      .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-      .backgroundColor(enabled ? '#EAF9F0' : '#FFF1E7')
-      .borderRadius(16)
-  }
-
-  @Builder
-  private FeedModeBoard(): void {
-    Column({ space: 14 }) {
-      this.SectionLabel('推荐流模式', '用鸿蒙风格的胶囊分层重做切换区，后续把内存态替换成真实 Preferences。')
-
-      ForEach(FEED_MODE_OPTIONS, (item: FeedModeOption) => {
-        Row({ space: 12 }) {
-          Column({ space: 4 }) {
-            Text(item.title)
-              .fontSize(16)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#0F172A')
-            Text(item.summary)
-              .fontSize(13)
-              .lineHeight(20)
-              .fontColor('#475569')
-          }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
-
-          Text(this.selectedFeedMode === item.key ? '当前模式' : '切换')
-            .fontSize(12)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.selectedFeedMode === item.key ? '#0A59F7' : '#475569')
-            .padding({ left: 12, right: 12, top: 9, bottom: 9 })
-            .backgroundColor(this.selectedFeedMode === item.key ? '#EAF2FF' : '#F4F7FB')
-            .borderRadius(18)
-        }
-        .padding(16)
-        .backgroundColor(this.selectedFeedMode === item.key ? '#F8FBFF' : '#FCFDFF')
-        .border({
-          width: 1,
-          color: this.selectedFeedMode === item.key ? '#CFE0FF' : '#EEF2F7'
-        })
-        .borderRadius(24)
-        .onClick(() => {
-          this.selectFeedMode(item.key);
-        })
-      }, (item: FeedModeOption) => item.key)
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding(20)
-    .margin({ left: 16, right: 16, bottom: 12 })
-    .backgroundColor('#CCFFFFFF')
-    .backgroundBlurStyle(BlurStyle.Thin)
-    .border({
-      width: 1,
-      color: '#82FFFFFF'
-    })
-    .borderRadius(30)
-  }
-
-  @Builder
-  private DirectionBoard(): void {
-    Column({ space: 12 }) {
-      this.SectionLabel('材质与规范', '设计方向基于 HarmonyOS 官方设计理念中的蓝白色彩、舒适圆角、悬浮与轻拟物表达。')
-
-      Row({ space: 10 }) {
-        this.DirectionTile('蓝白主调', '纯净、克制，适合信息型应用。', '#EEF5FF')
-        this.DirectionTile('悬浮层级', '通过模糊和阴影建立前后景。', '#EFFCFD')
-      }
-
-      Row({ space: 10 }) {
-        this.DirectionTile('舒适圆角', '卡片和导航都使用更柔和的超圆角。', '#F8F3FF')
-        this.DirectionTile('轻拟物', '少量体积感，不做 Android 式平铺。', '#FFF7ED')
-      }
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding(20)
-    .margin({ left: 16, right: 16, bottom: 28 })
-    .backgroundColor('#B8FFFFFF')
-    .backgroundBlurStyle(BlurStyle.Thin)
-    .border({
-      width: 1,
-      color: '#82FFFFFF'
-    })
-    .borderRadius(30)
-  }
-
-  @Builder
-  private DirectionTile(title: string, summary: string, surface: string): void {
-    Column({ space: 8 }) {
-      Text(title)
-        .fontSize(15)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#0F172A')
-      Text(summary)
-        .fontSize(12)
-        .lineHeight(19)
-        .fontColor('#475569')
-    }
-    .layoutWeight(1)
-    .alignItems(HorizontalAlign.Start)
-    .padding(14)
-    .backgroundColor(surface)
-    .borderRadius(22)
-  }
-
-  @Builder
-  private ModuleBoard(item: MigrationModule): void {
-    Column({ space: 12 }) {
-      Row() {
-        Text(item.name)
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#0F172A')
-          .layoutWeight(1)
-
-        Text(this.statusText(item.status))
-          .fontSize(12)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.statusColor(item.status))
-          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-          .backgroundColor(this.statusTint(item.status))
-          .borderRadius(18)
-      }
-
-      Text(item.summary)
-        .fontSize(14)
-        .lineHeight(22)
-        .fontColor('#334155')
-
-      Text(item.sourceArea)
-        .fontSize(12)
-        .lineHeight(18)
-        .fontColor('#64748B')
-        .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-        .backgroundColor('#F8FBFF')
-        .borderRadius(18)
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding(20)
-    .margin({ left: 16, right: 16, bottom: 12 })
-    .backgroundColor('#CCFFFFFF')
-    .backgroundBlurStyle(BlurStyle.Thin)
-    .border({
-      width: 1,
-      color: '#84FFFFFF'
-    })
-    .borderRadius(28)
-  }
-
-  @Builder
-  private PhaseBoard(phase: MigrationPhase): void {
-    Column({ space: 12 }) {
-      Text(phase.title)
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#0F172A')
-
-      Text(phase.goal)
-        .fontSize(14)
-        .lineHeight(22)
-        .fontColor('#334155')
-
-      ForEach(phase.modules, (moduleName: string) => {
-        Text(moduleName)
-          .fontSize(13)
-          .fontColor('#1E293B')
-          .padding({ left: 12, right: 12, top: 9, bottom: 9 })
-          .backgroundColor('#F5F9FF')
-          .borderRadius(16)
-      }, (moduleName: string) => moduleName)
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding(20)
-    .margin({ left: 16, right: 16, bottom: 12 })
-    .backgroundColor('#B8FFFFFF')
-    .backgroundBlurStyle(BlurStyle.Thin)
-    .border({
-      width: 1,
-      color: '#78FFFFFF'
-    })
-    .borderRadius(28)
-  }
-
-  @Builder
-  private SettingBoard(item: SettingHint): void {
-    Column({ space: 8 }) {
-      Text(item.title)
-        .fontSize(15)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#0F172A')
-      Text(item.value)
-        .fontSize(13)
-        .lineHeight(21)
-        .fontColor('#475569')
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding(18)
-    .margin({ left: 16, right: 16, bottom: 12 })
-    .backgroundColor('#CCFFFFFF')
-    .backgroundBlurStyle(BlurStyle.Thin)
-    .border({
-      width: 1,
-      color: '#84FFFFFF'
-    })
-    .borderRadius(26)
-  }
-
-  @Builder
-  private OverviewSection(): void {
-    Column() {
-      this.HeroPanel()
-      this.SessionBoard()
-      this.FeedModeBoard()
-      this.DirectionBoard()
-    }
-  }
-
-  @Builder
-  private ModulesSection(): void {
-    Column() {
-      this.SectionHeader('迁移模块', '先拆协议和状态，再逐步替换页面与平台能力。')
-      ForEach(this.modules, (item: MigrationModule) => {
-        this.ModuleBoard(item)
-      }, (item: MigrationModule) => item.name)
-
-      this.SectionHeader('迁移节奏', '按 Lite MVP 到重功能的顺序推进，避免把难点一次性堆满。')
-      ForEach(this.phases, (item: MigrationPhase) => {
-        this.PhaseBoard(item)
-      }, (item: MigrationPhase) => item.title)
-    }
-  }
-
-  @Builder
-  private SettingsSection(): void {
-    Column() {
-      this.SectionHeader('工程设置', '这些卡片描述当前鸿蒙工程的约束与建议，不再使用默认表单式布局。')
-      ForEach(this.settingHints, (item: SettingHint) => {
-        this.SettingBoard(item)
-      }, (item: SettingHint) => item.title)
-
-      this.SettingBoard({
-        title: '下一步建议',
-        value: '优先把 Preferences 持久化接入 SessionStore，再把 AccountData、Cookie、zse96 签名桥和 Web 阅读壳迁进来。'
-      })
-    }
-  }
-
-  @Builder
-  private SectionHeader(title: string, summary: string): void {
-    Column({ space: 6 }) {
-      Text(title)
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#0F172A')
-      Text(summary)
-        .fontSize(14)
-        .lineHeight(22)
-        .fontColor('#475569')
-    }
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: 18, right: 18, top: 8, bottom: 14 })
-  }
-
-  @Builder
-  private ActiveContent(): void {
-    if (this.selectedMainTab === 'overview') {
-      this.OverviewSection()
-    } else if (this.selectedMainTab === 'modules') {
-      this.ModulesSection()
-    } else {
-      this.SettingsSection()
-    }
-  }
-
   build() {
-    Stack({ alignContent: Alignment.TopStart }) {
-      this.BackgroundLayer()
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.page_background'))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
-      Scroll() {
-        Column() {
-          Column()
-            .height(208)
-            .width('100%')
+      Column() {
+        this.TopBar()
 
-          this.ActiveContent()
+        if (this.selectedPortalTab === 'home' && this.showHomeAccountPanel) {
+          Row() {
+            Blank()
+              .layoutWeight(1)
 
-          Column()
-            .height(34)
-            .width('100%')
+            this.HomeAccountPanel()
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, bottom: 8 })
         }
+
+        Scroll() {
+          Column() {
+            this.ContentArea()
+
+            Column()
+              .height(BOTTOM_PORTAL_BAR_CONTENT_INSET + this.bottomSafeAreaVp)
+              .width('100%')
+          }
+        }
+        .scrollBar(BarState.Off)
+        .width('100%')
+        .layoutWeight(1)
       }
-      .scrollBar(BarState.Off)
       .width('100%')
       .height('100%')
 
-      this.TopChrome()
+      Column() {
+        this.BottomPortalBar()
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.End)
+      .padding({ bottom: this.bottomSafeAreaVp + BOTTOM_PORTAL_BAR_BASE_OFFSET })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#EEF3F8')
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }

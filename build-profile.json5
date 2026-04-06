@@ -3,6 +3,7 @@
     "products": [
       {
         "name": "default",
+        "signingConfig": "default",
         "targetSdkVersion": "6.0.2(22)",
         "compatibleSdkVersion": "6.0.2(22)",
         "runtimeOS": "HarmonyOS",
@@ -20,6 +21,21 @@
       },
       {
         "name": "release"
+      }
+    ],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_U_cslcYMvNEkjYwusBfg81W7m-XGNOtGDGPmfkrn2HY=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B3D565E971AF411076844B8585576490F6E4563C7A7BD40FD5ACD55CB8AB10D76F1D8805B3ECE6E",
+          "profile": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_U_cslcYMvNEkjYwusBfg81W7m-XGNOtGDGPmfkrn2HY=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_U_cslcYMvNEkjYwusBfg81W7m-XGNOtGDGPmfkrn2HY=.p12",
+          "storePassword": "0000001B179A0E018EAF233ECD63EBED0ECB0310AC966F9BB0FD4BD145783C6A28FE047BAFFE11733D69FD"
+        }
       }
     ]
   },
