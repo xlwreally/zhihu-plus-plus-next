@@ -5,4 +5,4 @@ build
 oh_modules
 local.properties
 *.swp
-
+entry/src/main/resources/rawfile/debug/local_debug_session.json

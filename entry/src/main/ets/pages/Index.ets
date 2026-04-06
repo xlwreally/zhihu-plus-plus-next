@@ -3,6 +3,7 @@ import { router } from '@kit.ArkUI';
 import { DailyService, DailyStoriesPage, DailyStory } from '../services/DailyService';
 import { DEFAULT_SESSION_SNAPSHOT, HomeFeedItem, SessionSnapshot } from '../models/ZhihuModels';
 import { HomeFeedService } from '../services/HomeFeedService';
+import { LocalDebugSessionService } from '../services/LocalDebugSessionService';
 import { ZhihuSessionRepository } from '../services/ZhihuSessionRepository';
 
 type AppPortalKey = 'home' | 'follow' | 'daily' | 'history';
@@ -51,6 +52,7 @@ struct Index {
 
   aboutToAppear(): void {
     ZhihuSessionRepository.load(this.context());
+    this.applyLocalDebugSession();
     this.loadLatestDaily();
   }
 
@@ -62,6 +64,16 @@ struct Index {
 
   private context(): common.Context {
     return getContext(this) as common.Context;
+  }
+
+  private async applyLocalDebugSession(): Promise<void> {
+    try {
+      const applied = await LocalDebugSessionService.applyIfPresent(this.context());
+      if (applied && this.selectedPortalTab === 'home' && !this.homeHasLoaded) {
+        this.loadHomeFirstPage();
+      }
+    } catch (_) {
+    }
   }
 
   private portalTitle(tab: AppPortalKey): string {
@@ -239,43 +251,71 @@ struct Index {
   @Builder
   private TopBar(): void {
     if (this.selectedPortalTab === 'home') {
-      Column({ space: 10 }) {
-        Text(this.portalTitle(this.selectedPortalTab))
-          .fontSize(28)
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
-
+      Stack() {
         Row() {
-          Row({ space: 12 }) {
-            Text('搜')
-              .fontSize(14)
-              .fontWeight(FontWeight.Bold)
+          Column()
+            .width(210)
+            .height(56)
+            .borderRadius(28)
+            .backgroundColor('#01FFFFFF')
+            .shadow({
+              radius: 34,
+              color: '#55A8D8FF',
+              offsetX: -10,
+              offsetY: 8
+            })
+
+          Blank()
+            .layoutWeight(1)
+
+          Column()
+            .width(56)
+            .height(56)
+            .borderRadius(28)
+            .backgroundColor('#01FFFFFF')
+            .shadow({
+              radius: 26,
+              color: '#40FFFFFF',
+              offsetX: 6,
+              offsetY: -4
+            })
+        }
+        .width('100%')
+        .padding({ left: 4, right: 4, top: 4, bottom: 4 })
+
+        Row({ space: 12 }) {
+          Row({ space: 10 }) {
+            Text('⌕')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
               .fontColor($r('app.color.text_secondary'))
-              .width(20)
+              .width(16)
               .textAlign(TextAlign.Center)
 
-            Column({ space: 2 }) {
-              Text('搜索')
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.text_secondary'))
-
-              Text(this.topBarSubtitle())
-                .fontSize(11)
-                .fontColor($r('app.color.text_tertiary'))
-            }
-            .layoutWeight(1)
-            .alignItems(HorizontalAlign.Start)
+            Text('搜索')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_secondary'))
+              .layoutWeight(1)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
           }
           .layoutWeight(1)
-          .height(64)
-          .padding({ left: 18, right: 10 })
-          .backgroundColor($r('app.color.card_background'))
+          .height(54)
+          .padding({ left: 16, right: 16 })
+          .backgroundColor('#66FFFFFF')
+          .backgroundBlurStyle(BlurStyle.Thick)
           .border({
             width: 1,
-            color: $r('app.color.card_border')
+            color: '#4DFFFFFF'
           })
-          .borderRadius(32)
+          .borderRadius(27)
+          .shadow({
+            radius: 18,
+            color: '#1A2E6B9A',
+            offsetX: 0,
+            offsetY: 8
+          })
           .onClick(() => {
             this.openSearchPage();
           })
@@ -283,51 +323,59 @@ struct Index {
           Stack({ alignContent: Alignment.TopEnd }) {
             if (this.sessionSnapshot.avatarUrl.length > 0) {
               Image(this.sessionSnapshot.avatarUrl)
-                .width(50)
-                .height(50)
+                .width(42)
+                .height(42)
                 .objectFit(ImageFit.Cover)
-                .borderRadius(25)
+                .borderRadius(21)
                 .clip(true)
             } else {
               Column() {
                 Text(this.sessionSnapshot.loggedIn ? this.sessionSnapshot.accountName.slice(0, 1) : '我')
-                  .fontSize(18)
+                  .fontSize(16)
                   .fontWeight(FontWeight.Bold)
                   .fontColor($r('app.color.action_text'))
               }
-              .width(50)
-              .height(50)
+              .width(42)
+              .height(42)
               .justifyContent(FlexAlign.Center)
               .alignItems(HorizontalAlign.Center)
               .backgroundColor($r('app.color.action_background'))
-              .borderRadius(25)
+              .borderRadius(21)
             }
 
             if (this.sessionSnapshot.loggedIn) {
               Column()
-                .width(10)
-                .height(10)
+                .width(9)
+                .height(9)
                 .backgroundColor('#FF5A5F')
                 .borderRadius(5)
-                .margin({ top: 2, right: 2 })
+                .margin({ top: 1, right: 1 })
             }
           }
-          .width(64)
-          .height(64)
-          .padding(7)
-          .backgroundColor($r('app.color.card_background'))
+          .width(54)
+          .height(54)
+          .padding(6)
+          .backgroundColor('#73FFFFFF')
+          .backgroundBlurStyle(BlurStyle.Thick)
           .border({
             width: 1,
-            color: $r('app.color.card_border')
+            color: '#52FFFFFF'
           })
-          .borderRadius(32)
+          .borderRadius(27)
+          .shadow({
+            radius: 18,
+            color: '#16000000',
+            offsetX: 0,
+            offsetY: 8
+          })
           .onClick(() => {
             this.showHomeAccountPanel = !this.showHomeAccountPanel;
           })
         }
+        .alignItems(VerticalAlign.Center)
+        .width('100%')
       }
-      .alignItems(HorizontalAlign.Start)
-      .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 16 })
+      .padding({ left: 20, right: 20, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 10 })
       .width('100%')
     } else {
       Column({ space: 2 }) {

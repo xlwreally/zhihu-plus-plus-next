@@ -16,7 +16,24 @@ export class HomeFeedService {
   }
 
   private static numberValue(value: JsonValue | undefined): number {
-    return typeof value === 'number' ? value : 0;
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  }
+
+  private static idValue(value: JsonValue | undefined): string {
+    if (typeof value === 'number') {
+      return `${value}`;
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    return '';
   }
 
   private static objectValue(value: JsonValue | undefined): JsonObject {
@@ -29,6 +46,52 @@ export class HomeFeedService {
 
   private static joinDetails(base: string, actionText: string): string {
     return actionText.length > 0 ? `${base} · ${actionText}` : base;
+  }
+
+  private static resolveTargetUrl(targetType: string, target: JsonObject, rawFeed: JsonObject): string {
+    const originalUrl = this.stringValue(target.url);
+    if (originalUrl.startsWith('https://www.zhihu.com/')
+      || originalUrl.startsWith('https://zhuanlan.zhihu.com/')
+      || originalUrl.startsWith('https://www.zhihu.com/pin/')) {
+      return originalUrl;
+    }
+
+    const targetId = this.idValue(target.id);
+    if (targetType === 'answer') {
+      const questionId = this.idValue(this.objectValue(target.question).id);
+      if (questionId.length > 0 && targetId.length > 0) {
+        return `https://www.zhihu.com/question/${questionId}/answer/${targetId}`;
+      }
+    }
+    if (targetType === 'article' && targetId.length > 0) {
+      return `https://zhuanlan.zhihu.com/p/${targetId}`;
+    }
+    if (targetType === 'question' && targetId.length > 0) {
+      return `https://www.zhihu.com/question/${targetId}`;
+    }
+    if (targetType === 'pin' && targetId.length > 0) {
+      return `https://www.zhihu.com/pin/${targetId}`;
+    }
+
+    const rawId = this.stringValue(rawFeed.id);
+    return rawId.length > 0 ? `https://www.zhihu.com/${rawId}` : originalUrl;
+  }
+
+  private static stableItemId(type: string, target: JsonObject, rawFeed: JsonObject): string {
+    const targetId = this.idValue(target.id);
+    if (targetId.length > 0) {
+      return `${type}:${targetId}`;
+    }
+    const rawId = this.stringValue(rawFeed.id);
+    if (rawId.length > 0) {
+      return `${type}:${rawId}`;
+    }
+    const url = this.resolveTargetUrl(type, target, rawFeed);
+    if (url.length > 0) {
+      return `${type}:${url}`;
+    }
+    const title = this.stringValue(target.title) || this.stringValue(this.objectValue(target.question).title);
+    return `${type}:${title}`;
   }
 
   private static pickThumbnail(target: JsonObject, fallback: JsonObject): string {
@@ -56,7 +119,7 @@ export class HomeFeedService {
     if (targetType === 'answer') {
       const title = this.stringValue(question.title) || this.stringValue(question.name);
       return {
-        id: `answer:${this.numberValue(target.id)}`,
+        id: this.stableItemId('answer', target, rawFeed),
         type: 'answer',
         title,
         summary: this.stringValue(target.excerpt),
@@ -65,14 +128,14 @@ export class HomeFeedService {
         authorHeadline: this.stringValue(author.headline),
         authorAvatarUrl: this.stringValue(author.avatar_url),
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
-        targetUrl: this.stringValue(target.url),
+        targetUrl: this.resolveTargetUrl('answer', target, rawFeed),
         actionText
       };
     }
 
     if (targetType === 'article') {
       return {
-        id: `article:${this.numberValue(target.id)}`,
+        id: this.stableItemId('article', target, rawFeed),
         type: 'article',
         title: this.stringValue(target.title),
         summary: this.stringValue(target.excerpt),
@@ -81,14 +144,14 @@ export class HomeFeedService {
         authorHeadline: this.stringValue(author.headline),
         authorAvatarUrl: this.stringValue(author.avatar_url),
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
-        targetUrl: this.stringValue(target.url),
+        targetUrl: this.resolveTargetUrl('article', target, rawFeed),
         actionText
       };
     }
 
     if (targetType === 'question') {
       return {
-        id: `question:${this.numberValue(target.id)}`,
+        id: this.stableItemId('question', target, rawFeed),
         type: 'question',
         title: this.stringValue(target.title) || this.stringValue(target.name),
         summary: this.stringValue(target.excerpt),
@@ -97,7 +160,7 @@ export class HomeFeedService {
         authorHeadline: '',
         authorAvatarUrl: '',
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
-        targetUrl: this.stringValue(target.url),
+        targetUrl: this.resolveTargetUrl('question', target, rawFeed),
         actionText
       };
     }
@@ -105,7 +168,7 @@ export class HomeFeedService {
     if (targetType === 'pin') {
       const authorName = this.stringValue(author.name);
       return {
-        id: `pin:${this.numberValue(target.id)}`,
+        id: this.stableItemId('pin', target, rawFeed),
         type: 'pin',
         title: authorName.length > 0 ? `${authorName}的想法` : '想法',
         summary: this.stringValue(target.excerpt_title),
@@ -114,7 +177,7 @@ export class HomeFeedService {
         authorHeadline: this.stringValue(author.headline),
         authorAvatarUrl: this.stringValue(author.avatar_url),
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
-        targetUrl: this.stringValue(target.url),
+        targetUrl: this.resolveTargetUrl('pin', target, rawFeed),
         actionText
       };
     }
