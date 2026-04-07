@@ -19,8 +19,9 @@ import { CommentService } from '../services/CommentService';
 import { buildArticleHtmlDocument, htmlToDataUrl } from '../utils/ZhihuHtml';
 import { formatTimestamp } from '../utils/Time';
 
-const ROOT_SHEET_HEIGHT: number = 620;
-const CHILD_SHEET_HEIGHT: number = 560;
+const COMMENT_FOOTER_INDENT: number = 46;
+const COMMENT_CHILD_INDENT: number = 44;
+const COMMENT_CHILD_PREVIEW_LIMIT: number = 2;
 
 function formatCounter(value: number, unit: string): string {
   if (value >= 10000) {
@@ -47,7 +48,13 @@ function mergeComments(existing: ZhihuCommentItem[], incoming: ZhihuCommentItem[
   return merged;
 }
 
-function copyComment(item: ZhihuCommentItem, childComments: ZhihuCommentItem[], liked?: boolean, likeCount?: number): ZhihuCommentItem {
+function copyComment(
+  item: ZhihuCommentItem,
+  childComments: ZhihuCommentItem[],
+  liked?: boolean,
+  likeCount?: number,
+  childCommentCount?: number
+): ZhihuCommentItem {
   return {
     id: item.id,
     contentHtml: item.contentHtml,
@@ -56,13 +63,41 @@ function copyComment(item: ZhihuCommentItem, childComments: ZhihuCommentItem[], 
     createdTime: item.createdTime,
     liked: liked ?? item.liked,
     likeCount: likeCount ?? item.likeCount,
-    childCommentCount: item.childCommentCount,
+    childCommentCount: childCommentCount ?? item.childCommentCount,
     childComments,
     author: item.author,
     replyToAuthor: item.replyToAuthor,
     authorTag: item.authorTag,
     ipInfo: item.ipInfo
   };
+}
+
+function prependCommentPreview(existing: ZhihuCommentItem[], incoming: ZhihuCommentItem): ZhihuCommentItem[] {
+  const filtered = existing.filter((item: ZhihuCommentItem) => item.id !== incoming.id);
+  return [incoming, ...filtered].slice(0, COMMENT_CHILD_PREVIEW_LIMIT);
+}
+
+function appendReplyPreview(comments: ZhihuCommentItem[], parentId: string, reply: ZhihuCommentItem): ZhihuCommentItem[] {
+  let changed = false;
+  const next = comments.map((item: ZhihuCommentItem): ZhihuCommentItem => {
+    const childComments = appendReplyPreview(item.childComments, parentId, reply);
+    if (item.id !== parentId) {
+      if (childComments === item.childComments) {
+        return item;
+      }
+      changed = true;
+      return copyComment(item, childComments);
+    }
+    changed = true;
+    return copyComment(
+      item,
+      prependCommentPreview(item.childComments, reply),
+      undefined,
+      undefined,
+      item.childCommentCount + 1
+    );
+  });
+  return changed ? next : comments;
 }
 
 function copyDetail(
@@ -142,6 +177,8 @@ struct Article {
   @State private childCommentDraft: string = '';
   @State private childSubmitting: boolean = false;
   @State private childReplyTo?: ZhihuCommentItem = undefined;
+  @State private activeChildComment?: ZhihuCommentItem = undefined;
+  @State private commentRenderVersion: number = 0;
 
   aboutToAppear(): void {
     const params = router.getParams() as ArticlePageParams;
@@ -357,6 +394,16 @@ struct Article {
         this.childReplyTo?.id ?? target.commentId
       );
       this.childComments = [created, ...this.childComments];
+      this.rootComments = appendReplyPreview(this.rootComments, target.commentId, created);
+      if (this.activeChildComment !== undefined && this.activeChildComment.id === target.commentId) {
+        this.activeChildComment = copyComment(
+          this.activeChildComment,
+          prependCommentPreview(this.activeChildComment.childComments, created),
+          undefined,
+          undefined,
+          this.activeChildComment.childCommentCount + 1
+        );
+      }
       this.childCommentDraft = '';
       this.childReplyTo = undefined;
       this.showToast('回复已发送');
@@ -371,11 +418,17 @@ struct Article {
   private async toggleCommentLike(commentId: string, liked: boolean, fromChildSheet: boolean): Promise<void> {
     try {
       const nextLiked = await CommentService.toggleLikeComment(this.context(), commentId, liked);
-      if (fromChildSheet) {
-        this.childComments = updateCommentLike(this.childComments, commentId, nextLiked);
-      } else {
-        this.rootComments = updateCommentLike(this.rootComments, commentId, nextLiked);
+      this.rootComments = updateCommentLike(this.rootComments, commentId, nextLiked);
+      this.childComments = updateCommentLike(this.childComments, commentId, nextLiked);
+      if (this.activeChildComment !== undefined && this.activeChildComment.id === commentId) {
+        this.activeChildComment = copyComment(
+          this.activeChildComment,
+          this.activeChildComment.childComments,
+          nextLiked,
+          nextLiked ? this.activeChildComment.likeCount + 1 : Math.max(0, this.activeChildComment.likeCount - 1)
+        );
       }
+      this.commentRenderVersion += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误';
       this.showToast(`操作失败：${message}`);
@@ -398,6 +451,7 @@ struct Article {
     this.childCommentError = '';
     this.childCommentDraft = '';
     this.childReplyTo = undefined;
+    this.activeChildComment = comment;
     this.showChildCommentSheet = true;
     this.loadChildComments(true);
   }
@@ -670,11 +724,12 @@ struct Article {
     onClearReply: () => void,
     onSubmit: () => void
   ): void {
-    Column({ space: 8 }) {
+    Column({ space: 0 }) {
       if (replyTo !== undefined) {
         Row({ space: 8 }) {
           Text(`回复 ${replyTo.author.name}`)
             .fontSize(12)
+            .fontWeight(FontWeight.Medium)
             .fontColor($r('app.color.action_text'))
             .layoutWeight(1)
 
@@ -686,19 +741,22 @@ struct Article {
             })
         }
         .width('100%')
+        .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+        .backgroundColor($r('app.color.action_background'))
+        .borderRadius(14)
       }
 
       Row({ space: 10 }) {
         TextInput({
           text: draft,
-          placeholder: replyTo !== undefined ? `回复 ${replyTo.author.name}` : '写下你的评论'
+          placeholder: replyTo !== undefined ? `回复 ${replyTo.author.name}...` : '写下你的评论...'
         })
           .layoutWeight(1)
-          .height(40)
+          .height(44)
           .backgroundColor($r('app.color.card_background'))
           .fontColor($r('app.color.text_primary'))
           .placeholderColor($r('app.color.text_tertiary'))
-          .borderRadius(18)
+          .borderRadius(22)
           .border({ width: 1, color: $r('app.color.card_border') })
           .padding({ left: 14, right: 14 })
           .onChange((value: string) => {
@@ -708,20 +766,30 @@ struct Article {
         Text(submitting ? '发送中' : '发送')
           .fontSize(14)
           .fontWeight(FontWeight.Medium)
-          .fontColor(submitting ? $r('app.color.text_tertiary') : $r('app.color.action_text'))
-          .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-          .backgroundColor($r('app.color.action_background'))
-          .borderRadius(18)
+          .fontColor(
+            submitting || draft.trim().length === 0
+              ? $r('app.color.text_tertiary')
+              : $r('app.color.action_text')
+          )
+          .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+          .backgroundColor(
+            draft.trim().length === 0
+              ? $r('app.color.page_background')
+              : $r('app.color.action_background')
+          )
+          .borderRadius(20)
+          .border({ width: 1, color: $r('app.color.card_border') })
           .enabled(!submitting && draft.trim().length > 0)
           .onClick(() => {
             onSubmit();
           })
       }
       .width('100%')
+      .margin({ top: replyTo !== undefined ? 10 : 0 })
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 10, bottom: this.bottomSafeAreaVp + 10 })
-    .backgroundColor($r('app.color.page_background'))
+    .backgroundColor($r('app.color.card_background'))
     .border({
       width: {
         top: 1
@@ -731,15 +799,72 @@ struct Article {
   }
 
   @Builder
-  private CommentCard(comment: ZhihuCommentItem, fromChildSheet: boolean, compact: boolean = false): void {
-    Column({ space: 12 }) {
+  private SortChip(label: string, selected: boolean, onClick: () => void): void {
+    Text(label)
+      .fontSize(12)
+      .fontWeight(selected ? FontWeight.Medium : FontWeight.Regular)
+      .fontColor(selected ? $r('app.color.action_text') : $r('app.color.text_secondary'))
+      .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+      .backgroundColor(selected ? $r('app.color.action_background') : $r('app.color.card_background'))
+      .borderRadius(16)
+      .border({
+        width: 1,
+        color: selected ? $r('app.color.action_background') : $r('app.color.card_border')
+      })
+      .onClick(() => {
+        onClick();
+      })
+  }
+
+  @Builder
+  @Builder
+  private CommentSheetStatus(message: string, error: boolean = false): void {
+    Column({ space: 8 }) {
+      Text(message)
+        .fontSize(14)
+        .textAlign(TextAlign.Center)
+        .fontColor(error ? $r('app.color.error_text') : $r('app.color.text_secondary'))
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .padding({ left: 28, right: 28, top: 36, bottom: 36 })
+  }
+
+  @Builder
+  private CommentListLoadMore(label: string, enabled: boolean, onClick: () => void): void {
+    Row() {
+      Text(label)
+        .fontSize(12)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(enabled ? $r('app.color.action_text') : $r('app.color.text_tertiary'))
+    }
+    .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+    .backgroundColor($r('app.color.page_background'))
+    .borderRadius(16)
+    .border({ width: 1, color: $r('app.color.card_border') })
+    .enabled(enabled)
+    .onClick(() => {
+      onClick();
+    })
+  }
+
+  @Builder
+  private CommentCard(
+    comment: ZhihuCommentItem,
+    fromChildSheet: boolean,
+    compact: boolean = false,
+    showReplyThreadEntry: boolean = true
+  ): void {
+    Column({ space: compact ? 8 : 10 }) {
       Row({ space: 10 }) {
         if (comment.author.avatarUrl.length > 0) {
           Image(comment.author.avatarUrl)
-            .width(compact ? 30 : 38)
-            .height(compact ? 30 : 38)
+            .width(compact ? 30 : 36)
+            .height(compact ? 30 : 36)
             .objectFit(ImageFit.Cover)
-            .borderRadius(compact ? 15 : 19)
+            .borderRadius(compact ? 15 : 18)
         } else {
           Column() {
             Text(comment.author.name.slice(0, 1))
@@ -747,18 +872,18 @@ struct Article {
               .fontWeight(FontWeight.Bold)
               .fontColor($r('app.color.action_text'))
           }
-          .width(compact ? 30 : 38)
-          .height(compact ? 30 : 38)
+          .width(compact ? 30 : 36)
+          .height(compact ? 30 : 36)
           .justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Center)
           .backgroundColor($r('app.color.action_background'))
-          .borderRadius(compact ? 15 : 19)
+          .borderRadius(compact ? 15 : 18)
         }
 
-        Column({ space: 4 }) {
+        Column({ space: compact ? 4 : 6 }) {
           Row({ space: 6 }) {
             Text(comment.author.name)
-              .fontSize(compact ? 13 : 14)
+              .fontSize(compact ? 13 : 15)
               .fontWeight(FontWeight.Bold)
               .fontColor($r('app.color.text_primary'))
 
@@ -783,149 +908,208 @@ struct Article {
           .alignItems(VerticalAlign.Center)
 
           Text(comment.contentText)
-            .fontSize(compact ? 13 : 14)
-            .lineHeight(compact ? 20 : 22)
+            .width('100%')
+            .fontSize(compact ? 13 : 15)
+            .lineHeight(compact ? 20 : 23)
             .fontColor($r('app.color.text_primary'))
 
           if (comment.previewImageUrl.length > 0) {
             Image(comment.previewImageUrl)
-              .width(132)
-              .height(100)
+              .width(compact ? 128 : 180)
+              .height(compact ? 96 : 120)
               .objectFit(ImageFit.Cover)
               .borderRadius(12)
           }
-
-          Row({ space: 10 }) {
-            Text(formatUnixTime(comment.createdTime))
-              .fontSize(11)
-              .fontColor($r('app.color.text_secondary'))
-
-            if (comment.ipInfo.length > 0) {
-              Text(comment.ipInfo)
-                .fontSize(11)
-                .fontColor($r('app.color.text_secondary'))
-            }
-
-            Text(comment.liked ? `已赞 ${comment.likeCount}` : `点赞 ${comment.likeCount}`)
-              .fontSize(11)
-              .fontColor(comment.liked ? $r('app.color.action_text') : $r('app.color.text_secondary'))
-              .onClick(() => {
-                this.toggleCommentLike(comment.id, comment.liked, fromChildSheet);
-              })
-
-            Text('回复')
-              .fontSize(11)
-              .fontColor($r('app.color.action_text'))
-              .onClick(() => {
-                if (fromChildSheet) {
-                  this.childReplyTo = comment;
-                } else {
-                  this.rootReplyTo = comment;
-                }
-              })
-
-            if (!fromChildSheet && comment.childCommentCount > 0 && !compact) {
-              Text(`查看回复 ${comment.childCommentCount}`)
-                .fontSize(11)
-                .fontColor($r('app.color.action_text'))
-                .onClick(() => {
-                  this.openChildComments(comment);
-                })
-            }
-          }
-          .width('100%')
-          .alignItems(VerticalAlign.Center)
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
       }
       .width('100%')
+      .alignItems(VerticalAlign.Top)
+
+      Row({ space: 8 }) {
+        Row({ space: 8 }) {
+          Text(formatUnixTime(comment.createdTime))
+            .fontSize(11)
+            .fontColor($r('app.color.text_secondary'))
+            .maxLines(1)
+
+          if (comment.ipInfo.length > 0) {
+            Text(comment.ipInfo)
+              .layoutWeight(1)
+              .fontSize(11)
+              .fontColor($r('app.color.text_secondary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+        }
+        .layoutWeight(1)
+        .alignItems(VerticalAlign.Center)
+
+        Row({ space: 12 }) {
+          Row({ space: 4 }) {
+            Image($r('app.media.comment_action'))
+              .width(16)
+              .height(16)
+
+            if (!fromChildSheet && comment.childCommentCount > 0) {
+              Text(`${comment.childCommentCount}`)
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+            }
+          }
+          .padding({ left: 4, right: 4, top: 4, bottom: 4 })
+          .onClick(() => {
+            if (fromChildSheet) {
+              this.childReplyTo = comment;
+            } else {
+              this.openChildComments(comment);
+            }
+          })
+          .alignItems(VerticalAlign.Center)
+
+          Row({ space: 4 }) {
+            Image(comment.liked ? $r('app.media.thumb_up_filled') : $r('app.media.thumb_up_outline'))
+              .width(16)
+              .height(16)
+
+            Text(`${comment.likeCount}`)
+              .fontSize(12)
+              .fontColor(comment.liked ? $r('app.color.action_text') : $r('app.color.text_secondary'))
+          }
+          .padding({ left: 4, right: 4, top: 4, bottom: 4 })
+          .onClick(() => {
+            this.toggleCommentLike(comment.id, comment.liked, fromChildSheet);
+          })
+          .alignItems(VerticalAlign.Center)
+        }
+        .constraintSize({
+          minWidth: 84
+        })
+        .justifyContent(FlexAlign.End)
+        .alignItems(VerticalAlign.Center)
+      }
+      .width('100%')
+      .padding({ left: compact ? 40 : COMMENT_FOOTER_INDENT })
+      .alignItems(VerticalAlign.Center)
 
       if (!fromChildSheet && !compact && comment.childComments.length > 0) {
-        Column({ space: 10 }) {
-          ForEach(comment.childComments.slice(0, 2), (item: ZhihuCommentItem) => {
-            this.CommentCard(item, false, true);
-          }, (item: ZhihuCommentItem) => item.id)
+        Column() {
+          Column({ space: 10 }) {
+            ForEach(comment.childComments.slice(0, COMMENT_CHILD_PREVIEW_LIMIT), (item: ZhihuCommentItem) => {
+              this.CommentCard(item, false, true);
+            }, (item: ZhihuCommentItem) => `${item.id}:${this.commentRenderVersion}`)
+          }
+          .width('100%')
+          .padding({ left: 10 })
+          .border({ width: { left: 2 }, color: $r('app.color.card_border') })
         }
         .width('100%')
-        .padding({ left: 12 })
-        .border({
-          width: {
-            left: 2
-          },
-          color: $r('app.color.card_border')
-        })
+        .padding({ left: COMMENT_CHILD_INDENT })
+      }
+
+      if (!fromChildSheet && !compact && showReplyThreadEntry && comment.childCommentCount > 0) {
+        Row() {
+          Row({ space: 6 }) {
+            Text(`查看 ${comment.childCommentCount} 条子评论`)
+              .fontSize(12)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+          }
+          .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+          .backgroundColor($r('app.color.page_background'))
+          .borderRadius(16)
+          .border({ width: 1, color: $r('app.color.card_border') })
+          .onClick(() => {
+            this.openChildComments(comment);
+          })
+        }
+        .width('100%')
+        .padding({ left: COMMENT_CHILD_INDENT })
       }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding(14)
-    .backgroundColor($r('app.color.card_background'))
-    .borderRadius(18)
-    .border({ width: 1, color: $r('app.color.card_border') })
+    .padding({ top: compact ? 0 : 8, bottom: compact ? 0 : 8 })
   }
 
   @Builder
   private RootCommentSheet(): void {
     Column() {
-      Row() {
+      Column({ space: 12 }) {
         Text('评论')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
-        Blank()
-        Text(this.rootCommentSortOrder === 'score' ? '按热度' : '按时间')
+        Text(`${this.detail?.commentCount ?? 0} 条评论`)
           .fontSize(12)
-          .fontColor($r('app.color.action_text'))
-          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-          .backgroundColor($r('app.color.action_background'))
-          .borderRadius(14)
-          .onClick(() => {
-            this.rootCommentSortOrder = this.rootCommentSortOrder === 'score' ? 'time' : 'score';
-            this.ensureRootComments(true);
-          })
+          .fontColor($r('app.color.text_secondary'))
+
+        Row({ space: 10 }) {
+          if (this.rootCommentSortOrder === 'score') {
+            this.SortChip('最热', true, () => {
+              if (this.rootCommentSortOrder !== 'score') {
+                this.rootCommentSortOrder = 'score';
+                this.ensureRootComments(true);
+              }
+            })
+          } else {
+            this.SortChip('最热', false, () => {
+              if (this.rootCommentSortOrder !== 'score') {
+                this.rootCommentSortOrder = 'score';
+                this.ensureRootComments(true);
+              }
+            })
+          }
+
+          if (this.rootCommentSortOrder === 'time') {
+            this.SortChip('最新', true, () => {
+              if (this.rootCommentSortOrder !== 'time') {
+                this.rootCommentSortOrder = 'time';
+                this.ensureRootComments(true);
+              }
+            })
+          } else {
+            this.SortChip('最新', false, () => {
+              if (this.rootCommentSortOrder !== 'time') {
+                this.rootCommentSortOrder = 'time';
+                this.ensureRootComments(true);
+              }
+            })
+          }
+        }
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 18, bottom: 10 })
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: 18, bottom: 14 })
 
       Scroll() {
-        Column({ space: 12 }) {
+        Column({ space: 16 }) {
           if (this.rootCommentLoading && this.rootComments.length === 0) {
-            Text('正在加载评论...')
-              .fontSize(14)
-              .fontColor($r('app.color.text_secondary'))
-              .padding({ top: 12 })
+            this.CommentSheetStatus('正在加载评论...')
           } else if (this.rootCommentError.length > 0 && this.rootComments.length === 0) {
-            Text(this.rootCommentError)
-              .fontSize(13)
-              .fontColor($r('app.color.error_text'))
+            this.CommentSheetStatus(this.rootCommentError, true)
           } else if (this.rootComments.length === 0) {
-            Text('还没有评论，抢先说点什么。')
-              .fontSize(13)
-              .fontColor($r('app.color.text_secondary'))
+            this.CommentSheetStatus('还没有评论，抢先说点什么。')
           } else {
             ForEach(this.rootComments, (item: ZhihuCommentItem) => {
               this.CommentCard(item, false);
-            }, (item: ZhihuCommentItem) => item.id)
+            }, (item: ZhihuCommentItem) => `${item.id}:${this.commentRenderVersion}`)
           }
 
           if (this.rootComments.length > 0) {
-            Text(this.rootCommentEnd ? '没有更多评论了' : (this.rootCommentLoadingMore ? '正在加载更多...' : '加载更多评论'))
-              .fontSize(13)
-              .fontColor(
-                this.rootCommentEnd || this.rootCommentLoadingMore
-                  ? $r('app.color.text_tertiary')
-                  : $r('app.color.action_text')
-              )
-              .padding({ left: 12, right: 12, top: 10, bottom: 14 })
-              .enabled(!this.rootCommentEnd && !this.rootCommentLoadingMore)
-              .onClick(() => {
+            this.CommentListLoadMore(
+              this.rootCommentEnd ? '没有更多评论了' : (this.rootCommentLoadingMore ? '正在加载更多...' : '加载更多评论'),
+              !this.rootCommentEnd && !this.rootCommentLoadingMore,
+              () => {
                 this.loadMoreRootComments();
-              })
+              }
+            )
           }
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+        .alignItems(HorizontalAlign.Start)
+        .padding({ left: 16, right: 16, top: 4, bottom: 16 })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
@@ -953,58 +1137,62 @@ struct Article {
   @Builder
   private ChildCommentSheet(): void {
     Column() {
-      Row({ space: 10 }) {
+      Column({ space: 6 }) {
         Text('回复')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))
-        if (this.childTarget !== undefined) {
-          Text(`#${this.childTarget.commentId}`)
-            .fontSize(12)
-            .fontColor($r('app.color.text_secondary'))
-        }
+        Text(`${this.activeChildComment?.childCommentCount ?? this.childComments.length} 条回复`)
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 18, bottom: 10 })
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: 18, bottom: 14 })
 
       Scroll() {
-        Column({ space: 12 }) {
+        Column({ space: 16 }) {
+          if (this.activeChildComment !== undefined) {
+            Column({ space: 12 }) {
+              Text('原评论')
+                .fontSize(12)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_secondary'))
+
+              this.CommentCard(this.activeChildComment, true, false, false)
+            }
+            .width('100%')
+            .padding({ left: 14, right: 14, top: 14, bottom: 14 })
+            .backgroundColor($r('app.color.card_background'))
+            .borderRadius(18)
+            .border({ width: 1, color: $r('app.color.card_border') })
+          }
+
           if (this.childCommentLoading && this.childComments.length === 0) {
-            Text('正在加载回复...')
-              .fontSize(14)
-              .fontColor($r('app.color.text_secondary'))
-              .padding({ top: 12 })
+            this.CommentSheetStatus('正在加载回复...')
           } else if (this.childCommentError.length > 0 && this.childComments.length === 0) {
-            Text(this.childCommentError)
-              .fontSize(13)
-              .fontColor($r('app.color.error_text'))
+            this.CommentSheetStatus(this.childCommentError, true)
           } else if (this.childComments.length === 0) {
-            Text('暂时还没有回复。')
-              .fontSize(13)
-              .fontColor($r('app.color.text_secondary'))
+            this.CommentSheetStatus('暂时还没有回复。')
           } else {
             ForEach(this.childComments, (item: ZhihuCommentItem) => {
               this.CommentCard(item, true);
-            }, (item: ZhihuCommentItem) => item.id)
+            }, (item: ZhihuCommentItem) => `${item.id}:${this.commentRenderVersion}`)
           }
 
           if (this.childComments.length > 0) {
-            Text(this.childCommentEnd ? '没有更多回复了' : (this.childCommentLoadingMore ? '正在加载更多...' : '加载更多回复'))
-              .fontSize(13)
-              .fontColor(
-                this.childCommentEnd || this.childCommentLoadingMore
-                  ? $r('app.color.text_tertiary')
-                  : $r('app.color.action_text')
-              )
-              .padding({ left: 12, right: 12, top: 10, bottom: 14 })
-              .enabled(!this.childCommentEnd && !this.childCommentLoadingMore)
-              .onClick(() => {
+            this.CommentListLoadMore(
+              this.childCommentEnd ? '没有更多回复了' : (this.childCommentLoadingMore ? '正在加载更多...' : '加载更多回复'),
+              !this.childCommentEnd && !this.childCommentLoadingMore,
+              () => {
                 this.loadMoreChildComments();
-              })
+              }
+            )
           }
         }
         .width('100%')
-        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+        .alignItems(HorizontalAlign.Start)
+        .padding({ left: 16, right: 16, top: 4, bottom: 16 })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
@@ -1030,36 +1218,45 @@ struct Article {
   }
 
   build() {
-    Column() {
-      this.HeaderBar()
-      this.ArticleBody()
-      this.ActionBar()
+    Stack({ alignContent: Alignment.BottomStart }) {
+      Column() {
+        this.HeaderBar()
+        this.ArticleBody()
+        this.ActionBar()
+      }
+      .width('100%')
+      .height('100%')
+      .backgroundColor($r('app.color.page_background'))
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+      .bindSheet($$this.showRootCommentSheet, this.RootCommentSheet(), {
+        showClose: false,
+        dragBar: true,
+        preferType: SheetType.BOTTOM,
+        detents: [SheetSize.LARGE],
+        backgroundColor: $r('app.color.page_background'),
+        onDisappear: () => {
+          this.showRootCommentSheet = false;
+          this.rootReplyTo = undefined;
+        }
+      })
+
+      Column()
+        .width(1)
+        .height(1)
+        .bindSheet($$this.showChildCommentSheet, this.ChildCommentSheet(), {
+          showClose: false,
+          dragBar: true,
+          preferType: SheetType.BOTTOM,
+          detents: [SheetSize.LARGE],
+          backgroundColor: $r('app.color.page_background'),
+          onDisappear: () => {
+            this.showChildCommentSheet = false;
+            this.childReplyTo = undefined;
+            this.activeChildComment = undefined;
+          }
+        })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('app.color.page_background'))
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-    .bindSheet($$this.showRootCommentSheet, this.RootCommentSheet(), {
-      showClose: false,
-      dragBar: true,
-      preferType: SheetType.BOTTOM,
-      detents: [ROOT_SHEET_HEIGHT],
-      backgroundColor: $r('app.color.page_background'),
-      onDisappear: () => {
-        this.showRootCommentSheet = false;
-        this.rootReplyTo = undefined;
-      }
-    })
-    .bindSheet($$this.showChildCommentSheet, this.ChildCommentSheet(), {
-      showClose: false,
-      dragBar: true,
-      preferType: SheetType.BOTTOM,
-      detents: [CHILD_SHEET_HEIGHT],
-      backgroundColor: $r('app.color.page_background'),
-      onDisappear: () => {
-        this.showChildCommentSheet = false;
-        this.childReplyTo = undefined;
-      }
-    })
   }
 }

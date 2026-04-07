@@ -97,6 +97,15 @@ export function buildArticleHtmlDocument(title: string, contentHtml: string, sou
         height: auto;
         border-radius: 14px;
       }
+      img.zhihu-emoji {
+        width: 1.35em;
+        height: 1.35em;
+        max-width: none;
+        display: inline-block;
+        margin: 0 0.04em;
+        vertical-align: -0.24em;
+        border-radius: 0;
+      }
       pre, code {
         white-space: pre-wrap;
         word-break: break-word;

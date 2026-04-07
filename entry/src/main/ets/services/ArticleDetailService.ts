@@ -8,6 +8,7 @@ import {
 } from '../models/ZhihuContentModels';
 import { escapeHtml, paragraphizeText } from '../utils/ZhihuHtml';
 import { ZhihuApi } from './ZhihuApi';
+import { ZhihuEmojiService } from './ZhihuEmojiService';
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 
@@ -150,6 +151,7 @@ export class ArticleDetailService {
   }
 
   static async loadDetail(context: common.Context, target: ZhihuCommentableTarget): Promise<ZhihuContentDetail> {
+    await ZhihuEmojiService.initialize(context);
     let payload: JsonObject | null = null;
     if (target.kind === 'answer') {
       payload = await ZhihuApi.getJson(context, this.answerUrl(target), { signed: true });
@@ -158,6 +160,7 @@ export class ArticleDetailService {
       }
       const question = this.objectValue(payload.question);
       const questionId = `${question.id ?? target.questionId ?? ''}`;
+      const rawHtmlContent = this.stringValue(payload.content) || paragraphizeText(this.stringValue(payload.excerpt));
       return {
         target: {
           ...target,
@@ -171,7 +174,7 @@ export class ArticleDetailService {
         }),
         author: this.mapAuthor(this.objectValue(payload.author)),
         excerpt: this.stringValue(payload.excerpt),
-        htmlContent: this.stringValue(payload.content) || paragraphizeText(this.stringValue(payload.excerpt)),
+        htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
         commentCount: this.numberValue(payload.comment_count),
         voteCount: this.numberValue(payload.voteup_count),
         voteState: this.mapVoteState(payload),
@@ -190,6 +193,7 @@ export class ArticleDetailService {
       if (payload === null) {
         throw new Error('文章内容为空');
       }
+      const rawHtmlContent = this.stringValue(payload.content) || paragraphizeText(this.stringValue(payload.excerpt));
       return {
         target: {
           ...target,
@@ -199,7 +203,7 @@ export class ArticleDetailService {
         browserUrl: this.stringValue(payload.url) || contentTargetUrl(target),
         author: this.mapAuthor(this.objectValue(payload.author)),
         excerpt: this.stringValue(payload.excerpt),
-        htmlContent: this.stringValue(payload.content) || paragraphizeText(this.stringValue(payload.excerpt)),
+        htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
         commentCount: this.numberValue(payload.comment_count),
         voteCount: this.numberValue(payload.voteup_count),
         voteState: this.mapVoteState(payload),
@@ -218,6 +222,7 @@ export class ArticleDetailService {
       if (payload === null) {
         throw new Error('问题内容为空');
       }
+      const rawHtmlContent = this.stringValue(payload.detail) || paragraphizeText(this.stringValue(payload.excerpt));
       return {
         target: {
           ...target,
@@ -227,7 +232,7 @@ export class ArticleDetailService {
         browserUrl: this.stringValue(payload.url) || contentTargetUrl(target),
         author: this.mapAuthor(this.objectValue(payload.author)),
         excerpt: this.stringValue(payload.excerpt),
-        htmlContent: this.stringValue(payload.detail) || paragraphizeText(this.stringValue(payload.excerpt)),
+        htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
         commentCount: this.numberValue(payload.comment_count),
         voteCount: this.numberValue(payload.voteup_count),
         voteState: 'none',
@@ -247,6 +252,7 @@ export class ArticleDetailService {
       throw new Error('想法内容为空');
     }
     const author = this.mapAuthor(this.objectValue(payload.author));
+    const rawHtmlContent = this.buildPinHtml(payload);
     return {
       target: {
         ...target,
@@ -256,7 +262,7 @@ export class ArticleDetailService {
       browserUrl: this.stringValue(payload.url) || contentTargetUrl(target),
       author,
       excerpt: this.stringValue(payload.excerpt_title),
-      htmlContent: this.buildPinHtml(payload),
+      htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
       commentCount: this.numberValue(payload.comment_count),
       voteCount: this.numberValue(payload.like_count),
       voteState: 'none',

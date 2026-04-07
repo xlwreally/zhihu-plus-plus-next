@@ -9,6 +9,7 @@ import {
 } from '../models/ZhihuContentModels';
 import { escapeHtml, extractFirstImageUrl, stripHtmlToText } from '../utils/ZhihuHtml';
 import { ZhihuApi } from './ZhihuApi';
+import { ZhihuEmojiService } from './ZhihuEmojiService';
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 
@@ -69,7 +70,7 @@ export class CommentService {
     return {
       id: `${raw.id ?? ''}`,
       contentHtml,
-      contentText: stripHtmlToText(contentHtml),
+      contentText: ZhihuEmojiService.replaceText(stripHtmlToText(contentHtml)),
       previewImageUrl: extractFirstImageUrl(contentHtml),
       createdTime: this.numberValue(raw.created_time),
       liked: this.booleanValue(raw.liked),
@@ -131,6 +132,7 @@ export class CommentService {
     sortOrder: CommentSortOrder,
     nextUrl?: string
   ): Promise<ZhihuCommentPage> {
+    await ZhihuEmojiService.initialize(context);
     const payload = await ZhihuApi.getJson(context, nextUrl ?? this.rootCommentUrl(target, sortOrder), {
       signed: true
     });
@@ -149,6 +151,7 @@ export class CommentService {
     target: ZhihuCommentTarget,
     nextUrl?: string
   ): Promise<ZhihuCommentPage> {
+    await ZhihuEmojiService.initialize(context);
     const payload = await ZhihuApi.getJson(context, nextUrl ?? this.childCommentUrl(target), {
       signed: true
     });
