@@ -45,6 +45,14 @@ struct WebContent {
       }
       .width('100%')
       .padding({ left: 20, right: 20, top: this.topSafeAreaVp + 16, bottom: 12 })
+      .backgroundColor($r('app.color.glass_top_bar_background'))
+      .border({
+        width: {
+          bottom: 1
+        },
+        color: $r('app.color.glass_top_bar_border')
+      })
+      .backdropBlur(24)
 
       if (this.pageUrl.length > 0) {
         Web({ src: this.pageUrl, controller: this.webController })

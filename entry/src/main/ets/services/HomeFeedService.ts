@@ -1,3 +1,4 @@
+import { ZhihuCommentableTarget } from '../models/ZhihuContentModels';
 import common from '@ohos.app.ability.common';
 import { HomeFeedItem, HomeFeedPage } from '../models/ZhihuModels';
 import { ZhihuApi } from './ZhihuApi';
@@ -115,8 +116,15 @@ export class HomeFeedService {
     const actionText = this.stringValue(rawFeed.action_text) || this.stringValue(rawFeed.detail_text);
     const author = this.objectValue(target.author);
     const question = this.objectValue(target.question);
+    let nativeTarget: ZhihuCommentableTarget | undefined;
 
     if (targetType === 'answer') {
+      nativeTarget = {
+        kind: 'answer',
+        id: this.idValue(target.id),
+        questionId: this.idValue(question.id),
+        title: this.stringValue(question.title) || this.stringValue(question.name)
+      };
       const title = this.stringValue(question.title) || this.stringValue(question.name);
       return {
         id: this.stableItemId('answer', target, rawFeed),
@@ -129,11 +137,17 @@ export class HomeFeedService {
         authorAvatarUrl: this.stringValue(author.avatar_url),
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
         targetUrl: this.resolveTargetUrl('answer', target, rawFeed),
+        nativeTarget,
         actionText
       };
     }
 
     if (targetType === 'article') {
+      nativeTarget = {
+        kind: 'article',
+        id: this.idValue(target.id),
+        title: this.stringValue(target.title)
+      };
       return {
         id: this.stableItemId('article', target, rawFeed),
         type: 'article',
@@ -145,11 +159,17 @@ export class HomeFeedService {
         authorAvatarUrl: this.stringValue(author.avatar_url),
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
         targetUrl: this.resolveTargetUrl('article', target, rawFeed),
+        nativeTarget,
         actionText
       };
     }
 
     if (targetType === 'question') {
+      nativeTarget = {
+        kind: 'question',
+        id: this.idValue(target.id),
+        title: this.stringValue(target.title) || this.stringValue(target.name)
+      };
       return {
         id: this.stableItemId('question', target, rawFeed),
         type: 'question',
@@ -161,12 +181,18 @@ export class HomeFeedService {
         authorAvatarUrl: '',
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
         targetUrl: this.resolveTargetUrl('question', target, rawFeed),
+        nativeTarget,
         actionText
       };
     }
 
     if (targetType === 'pin') {
       const authorName = this.stringValue(author.name);
+      nativeTarget = {
+        kind: 'pin',
+        id: this.idValue(target.id),
+        title: authorName.length > 0 ? `${authorName}的想法` : '想法'
+      };
       return {
         id: this.stableItemId('pin', target, rawFeed),
         type: 'pin',
@@ -178,6 +204,7 @@ export class HomeFeedService {
         authorAvatarUrl: this.stringValue(author.avatar_url),
         thumbnailUrl: this.pickThumbnail(target, rawFeed),
         targetUrl: this.resolveTargetUrl('pin', target, rawFeed),
+        nativeTarget,
         actionText
       };
     }

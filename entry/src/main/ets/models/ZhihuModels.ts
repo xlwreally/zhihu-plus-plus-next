@@ -1,3 +1,5 @@
+import { ZhihuCommentableTarget } from './ZhihuContentModels';
+
 export interface ZhihuAccountProfile {
   readonly id: string;
   readonly name: string;
@@ -34,6 +36,7 @@ export interface HomeFeedItem {
   readonly authorAvatarUrl: string;
   readonly thumbnailUrl: string;
   readonly targetUrl: string;
+  readonly nativeTarget?: ZhihuCommentableTarget;
   readonly actionText: string;
 }
 

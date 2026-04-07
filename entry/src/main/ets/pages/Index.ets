@@ -1,9 +1,11 @@
 import common from '@ohos.app.ability.common';
 import { promptAction, router } from '@kit.ArkUI';
+import { serializeZhihuContentTarget, ZhihuCommentableTarget } from '../models/ZhihuContentModels';
 import { DailyService, DailyStoriesPage, DailyStory } from '../services/DailyService';
 import { DEFAULT_SESSION_SNAPSHOT, HomeFeedItem, SessionSnapshot } from '../models/ZhihuModels';
 import { HomeFeedService } from '../services/HomeFeedService';
 import { LocalDebugSessionService } from '../services/LocalDebugSessionService';
+import { resolveZhihuContent } from '../services/ZhihuContentResolver';
 import { ZhihuSessionRepository } from '../services/ZhihuSessionRepository';
 
 type AppPortalKey = 'home' | 'follow' | 'daily' | 'history';
@@ -141,6 +143,39 @@ struct Index {
       url: 'pages/WebContent',
       params: { title, url }
     });
+  }
+
+  private openNativeArticle(target: ZhihuCommentableTarget, fallbackTitle: string, fallbackUrl: string): void {
+    router.pushUrl({
+      url: 'pages/Article',
+      params: {
+        target: serializeZhihuContentTarget(target),
+        fallbackTitle,
+        fallbackUrl
+      }
+    });
+  }
+
+  private openDailyStory(item: DailyStory): void {
+    const nativeTarget = resolveZhihuContent(item.url);
+    if (nativeTarget !== undefined) {
+      this.openNativeArticle(nativeTarget, item.title, item.url);
+      return;
+    }
+    this.openWebContent(item.title, item.url);
+  }
+
+  private openHomeFeedItem(item: HomeFeedItem): void {
+    if (item.nativeTarget !== undefined) {
+      this.openNativeArticle(item.nativeTarget, item.title, item.targetUrl);
+      return;
+    }
+    const resolved = resolveZhihuContent(item.targetUrl);
+    if (resolved !== undefined) {
+      this.openNativeArticle(resolved, item.title, item.targetUrl);
+      return;
+    }
+    this.openWebContent(item.title, item.targetUrl);
   }
 
   private openSearchPage(): void {
@@ -418,7 +453,13 @@ struct Index {
         .width('100%')
         .padding({ left: 10, right: 10, top: 8, bottom: 8 })
       }
-      .backgroundColor('#99FFFFFF')
+      .backgroundColor($r('app.color.glass_top_bar_background'))
+      .border({
+        width: {
+          bottom: 1
+        },
+        color: $r('app.color.glass_top_bar_border')
+      })
       .backdropBlur(36)
       .padding({ left: 16, right: 16, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 6 })
       .width('100%')
@@ -438,7 +479,13 @@ struct Index {
         .width('100%')
         .padding({ left: 16, right: 16, top: 10, bottom: 10 })
       }
-      .backgroundColor('#96FFFFFF')
+      .backgroundColor($r('app.color.glass_top_bar_background'))
+      .border({
+        width: {
+          bottom: 1
+        },
+        color: $r('app.color.glass_top_bar_border')
+      })
       .backdropBlur(32)
       .padding({ left: 16, right: 16, top: TOP_BAR_BASE_PADDING + this.topSafeAreaVp, bottom: 10 })
       .width('100%')
@@ -761,7 +808,7 @@ struct Index {
       offsetY: 2
     })
     .onClick(() => {
-      this.openWebContent(item.title, item.url);
+      this.openDailyStory(item);
     })
   }
 
@@ -862,7 +909,7 @@ struct Index {
       offsetY: 3
     })
     .onClick(() => {
-      this.openWebContent(item.title, item.targetUrl);
+      this.openHomeFeedItem(item);
     })
   }
 

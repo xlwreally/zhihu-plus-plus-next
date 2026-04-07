@@ -59,6 +59,30 @@
     {
       "name": "error_text",
       "value": "#FF8A80"
+    },
+    {
+      "name": "article_bar_background",
+      "value": "#F50B1016"
+    },
+    {
+      "name": "article_bar_border",
+      "value": "#16212C"
+    },
+    {
+      "name": "portal_top_bar_background",
+      "value": "#F50B1016"
+    },
+    {
+      "name": "portal_top_bar_border",
+      "value": "#16212C"
+    },
+    {
+      "name": "glass_top_bar_background",
+      "value": "#C00B1016"
+    },
+    {
+      "name": "glass_top_bar_border",
+      "value": "#16212C"
     }
   ]
 }

@@ -64,9 +64,13 @@ export class ZhihuApi {
     }
   }
 
-  static async getJson(url: string, options?: RequestOptions): Promise<JsonObject | null>;
-  static async getJson(context: common.Context, url: string, options?: RequestOptions): Promise<JsonObject | null>;
-  static async getJson(
+  private static async requestJson(url: string, options?: RequestOptions): Promise<JsonObject | null>;
+  private static async requestJson(
+    context: common.Context,
+    url: string,
+    options?: RequestOptions
+  ): Promise<JsonObject | null>;
+  private static async requestJson(
     contextOrUrl: common.Context | string,
     urlOrOptions?: string | RequestOptions,
     maybeOptions: RequestOptions = {}
@@ -128,5 +132,40 @@ export class ZhihuApi {
     } finally {
       client.destroy();
     }
+  }
+
+  static async getJson(url: string, options?: RequestOptions): Promise<JsonObject | null>;
+  static async getJson(context: common.Context, url: string, options?: RequestOptions): Promise<JsonObject | null>;
+  static async getJson(
+    contextOrUrl: common.Context | string,
+    urlOrOptions?: string | RequestOptions,
+    maybeOptions: RequestOptions = {}
+  ): Promise<JsonObject | null> {
+    const hasContext = typeof contextOrUrl !== 'string';
+    if (hasContext) {
+      return this.requestJson(contextOrUrl as common.Context, urlOrOptions as string, maybeOptions);
+    }
+    return this.requestJson(contextOrUrl, urlOrOptions as RequestOptions | undefined);
+  }
+
+  static async postJson(context: common.Context, url: string, options: RequestOptions = {}): Promise<JsonObject | null> {
+    return this.requestJson(context, url, {
+      ...options,
+      method: http.RequestMethod.POST
+    });
+  }
+
+  static async putJson(context: common.Context, url: string, options: RequestOptions = {}): Promise<JsonObject | null> {
+    return this.requestJson(context, url, {
+      ...options,
+      method: http.RequestMethod.PUT
+    });
+  }
+
+  static async deleteJson(context: common.Context, url: string, options: RequestOptions = {}): Promise<JsonObject | null> {
+    return this.requestJson(context, url, {
+      ...options,
+      method: http.RequestMethod.DELETE
+    });
   }
 }
