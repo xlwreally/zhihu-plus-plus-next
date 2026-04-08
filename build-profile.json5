@@ -28,13 +28,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_U_cslcYMvNEkjYwusBfg81W7m-XGNOtGDGPmfkrn2HY=.cer",
+          "certpath": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_Leus1AZNdfu5fmh_05QuXiLy2MDQrW8Yyyr60yUhxwQ=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001B3D565E971AF411076844B8585576490F6E4563C7A7BD40FD5ACD55CB8AB10D76F1D8805B3ECE6E",
-          "profile": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_U_cslcYMvNEkjYwusBfg81W7m-XGNOtGDGPmfkrn2HY=.p7b",
+          "keyPassword": "0000001B3CB43BC961EEBD1B8DBC759F0B2AA4BF98E6D8C94EF307A0AF9C75E489698744E16B426AE6E814",
+          "profile": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_Leus1AZNdfu5fmh_05QuXiLy2MDQrW8Yyyr60yUhxwQ=.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_U_cslcYMvNEkjYwusBfg81W7m-XGNOtGDGPmfkrn2HY=.p12",
-          "storePassword": "0000001B179A0E018EAF233ECD63EBED0ECB0310AC966F9BB0FD4BD145783C6A28FE047BAFFE11733D69FD"
+          "storeFile": "C:\\Users\\XLW\\.ohos\\config\\default_zhihu-plus-plus-next_Leus1AZNdfu5fmh_05QuXiLy2MDQrW8Yyyr60yUhxwQ=.p12",
+          "storePassword": "0000001B43921D21D2F6AD9DA1B05359F7A5F616D14B07C9E4ED2EACD12B524586D3930E3B91F85F2F1ACC"
         }
       }
     ]

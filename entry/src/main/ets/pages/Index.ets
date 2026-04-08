@@ -7,6 +7,7 @@ import { HomeFeedService } from '../services/HomeFeedService';
 import { LocalDebugSessionService } from '../services/LocalDebugSessionService';
 import { resolveZhihuContent } from '../services/ZhihuContentResolver';
 import { ZhihuSessionRepository } from '../services/ZhihuSessionRepository';
+import { AppearanceSettingsRepository, AppearanceThemeMode } from '../services/AppearanceSettingsRepository';
 
 type AppPortalKey = 'home' | 'follow' | 'daily' | 'history';
 
@@ -20,11 +21,21 @@ interface DailySection {
   readonly stories: DailyStory[];
 }
 
+interface ThemeModeOptionItem {
+  readonly mode: AppearanceThemeMode;
+  readonly label: string;
+}
+
 const TOP_BAR_BASE_PADDING: number = 10;
 const TOP_BAR_SCROLL_INSET: number = 68;
 const BOTTOM_PORTAL_BAR_CONTENT_INSET: number = 84;
 const BOTTOM_PORTAL_BAR_BASE_OFFSET: number = 8;
 const SEARCH_PAGE_URL: string = 'https://www.zhihu.com/search?type=content&q=';
+const THEME_MODE_OPTIONS: ThemeModeOptionItem[] = [
+  { mode: 'light', label: '日间' },
+  { mode: 'dark', label: '黑暗' },
+  { mode: 'system', label: '跟随系统' }
+];
 
 const APP_PORTAL_TABS: AppPortalOption[] = [
   { key: 'home', title: '主页' },
@@ -39,6 +50,7 @@ struct Index {
   @StorageProp('topSafeAreaVp') private topSafeAreaVp: number = 0;
   @StorageProp('bottomSafeAreaVp') private bottomSafeAreaVp: number = 0;
   @StorageProp('sessionSnapshot') private sessionSnapshot: SessionSnapshot = DEFAULT_SESSION_SNAPSHOT;
+  @StorageProp('themeMode') private themeMode: AppearanceThemeMode = 'system';
   @State private selectedPortalTab: AppPortalKey = 'daily';
   @State private dailySections: DailySection[] = [];
   @State private dailyLoading: boolean = false;
@@ -52,8 +64,10 @@ struct Index {
   @State private homeNextUrl: string = '';
   @State private homeHasLoaded: boolean = false;
   @State private showHomeAccountPanel: boolean = false;
+  @State private showAppearanceSettingsPanel: boolean = false;
 
   aboutToAppear(): void {
+    AppearanceSettingsRepository.load(this.context());
     ZhihuSessionRepository.load(this.context());
     this.applyLocalDebugSession();
     this.loadLatestDaily();
@@ -204,6 +218,24 @@ struct Index {
   private openProjectRepository(): void {
     this.showHomeAccountPanel = false;
     this.openWebContent('知乎++ 项目地址', 'https://github.com/zly2006/zhihu-plus-plus');
+  }
+
+  private openAppearanceSettings(): void {
+    this.showAppearanceSettingsPanel = true;
+  }
+
+  private themeModeDescription(): string {
+    if (this.themeMode === 'light') {
+      return '当前为日间模式';
+    }
+    if (this.themeMode === 'dark') {
+      return '当前为黑暗模式';
+    }
+    return '当前跟随系统模式';
+  }
+
+  private setThemeMode(mode: AppearanceThemeMode): void {
+    AppearanceSettingsRepository.setThemeMode(this.context(), mode);
   }
 
   private showPendingSettingToast(message: string): void {
@@ -444,7 +476,8 @@ struct Index {
               offsetY: 8
             })
             .onClick(() => {
-              this.showHomeAccountPanel = !this.showHomeAccountPanel;
+              this.showAppearanceSettingsPanel = false;
+              this.showHomeAccountPanel = true;
             })
           }
           .alignItems(VerticalAlign.Center)
@@ -588,10 +621,10 @@ struct Index {
                 .fontWeight(FontWeight.Medium)
                 .fontColor($r('app.color.error_text'))
                 .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-                .backgroundColor('#FFF7F7')
+                .backgroundColor($r('app.color.card_background'))
                 .border({
                   width: 1,
-                  color: '#F4D4D6'
+                  color: $r('app.color.card_border')
                 })
                 .borderRadius(18)
                 .onClick(() => {
@@ -604,11 +637,11 @@ struct Index {
         }
         .width('100%')
         .padding(16)
-        .backgroundColor('#FFFFFFFF')
+        .backgroundColor($r('app.color.card_background'))
         .borderRadius(24)
         .border({
           width: 1,
-          color: '#EEF2F7'
+          color: $r('app.color.card_border')
         })
 
         Column({ space: 12 }) {
@@ -626,7 +659,7 @@ struct Index {
                   .fontWeight(FontWeight.Medium)
                   .fontColor($r('app.color.text_primary'))
 
-                Text('主题、字体与界面细节正在迁移')
+                Text('主题与阅读体验入口（已支持黑暗模式）')
                   .fontSize(12)
                   .lineHeight(18)
                   .fontColor($r('app.color.text_secondary'))
@@ -634,16 +667,20 @@ struct Index {
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
 
-              Text('待迁移')
+              Text('打开')
                 .fontSize(12)
                 .fontColor($r('app.color.action_text'))
             }
             .width('100%')
             .padding({ left: 16, right: 16, top: 16, bottom: 16 })
-            .backgroundColor('#FFFFFFFF')
+            .backgroundColor($r('app.color.card_background'))
+            .border({
+              width: 1,
+              color: $r('app.color.card_border')
+            })
             .borderRadius(20)
             .onClick(() => {
-              this.showPendingSettingToast('外观设置页还在迁移中');
+              this.openAppearanceSettings();
             })
 
             Row({ space: 12 }) {
@@ -667,7 +704,11 @@ struct Index {
             }
             .width('100%')
             .padding({ left: 16, right: 16, top: 16, bottom: 16 })
-            .backgroundColor('#FFFFFFFF')
+            .backgroundColor($r('app.color.card_background'))
+            .border({
+              width: 1,
+              color: $r('app.color.card_border')
+            })
             .borderRadius(20)
             .onClick(() => {
               this.showPendingSettingToast('推荐与过滤设置页还在迁移中');
@@ -694,7 +735,11 @@ struct Index {
             }
             .width('100%')
             .padding({ left: 16, right: 16, top: 16, bottom: 16 })
-            .backgroundColor('#FFFFFFFF')
+            .backgroundColor($r('app.color.card_background'))
+            .border({
+              width: 1,
+              color: $r('app.color.card_border')
+            })
             .borderRadius(20)
             .onClick(() => {
               this.openProjectRepository();
@@ -702,13 +747,17 @@ struct Index {
           }
           .width('100%')
           .padding(6)
-          .backgroundColor('#F7F9FC')
+          .backgroundColor($r('app.color.page_background'))
+          .border({
+            width: 1,
+            color: $r('app.color.card_border')
+          })
           .borderRadius(24)
         }
         .width('100%')
 
         Column({ space: 8 }) {
-          Text('当前阶段先复用子项目的交互结构，具体设置子页会在后续逐步迁移。')
+          Text('当前阶段先复用子项目的交互结构，其余设置子页会在后续逐步迁移。')
             .fontSize(12)
             .lineHeight(18)
             .fontColor($r('app.color.text_secondary'))
@@ -721,7 +770,97 @@ struct Index {
     }
     .scrollBar(BarState.Off)
     .width('100%')
-    .backgroundColor('#F5F7FB')
+    .backgroundColor($r('app.color.page_background'))
+  }
+
+  @Builder
+  private ThemeModeOption(mode: AppearanceThemeMode, label: string): void {
+    Text(label)
+      .fontSize(12)
+      .fontWeight(this.themeMode === mode ? FontWeight.Medium : FontWeight.Regular)
+      .fontColor(this.themeMode === mode ? $r('app.color.action_text') : $r('app.color.text_secondary'))
+      .padding({ left: 10, right: 10, top: 7, bottom: 7 })
+      .backgroundColor(this.themeMode === mode ? $r('app.color.action_background') : $r('app.color.card_background'))
+      .border({
+        width: 1,
+        color: this.themeMode === mode ? $r('app.color.tab_selected_border') : $r('app.color.card_border')
+      })
+      .borderRadius(14)
+      .onClick(() => {
+        this.setThemeMode(mode);
+      })
+  }
+
+  @Builder
+  private AppearanceSettingsSheet(): void {
+    Scroll() {
+      Column({ space: 18 }) {
+        Column({ space: 6 }) {
+          Text('外观与阅读体验')
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
+
+          Text('调整主题显示模式')
+            .fontSize(13)
+            .lineHeight(18)
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+
+        Column({ space: 2 }) {
+          Row({ space: 12 }) {
+            Column({ space: 4 }) {
+              Text('显示模式')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_primary'))
+
+              Text(this.themeModeDescription())
+                .fontSize(12)
+                .lineHeight(18)
+                .fontColor($r('app.color.text_secondary'))
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+
+            Row({ space: 6 }) {
+              ForEach(THEME_MODE_OPTIONS, (option: ThemeModeOptionItem) => {
+                this.ThemeModeOption(option.mode, option.label);
+              }, (option: ThemeModeOptionItem) => option.mode)
+            }
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Top)
+          .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+          .backgroundColor($r('app.color.card_background'))
+          .border({
+            width: 1,
+            color: $r('app.color.card_border')
+          })
+          .borderRadius(20)
+        }
+        .width('100%')
+        .padding(6)
+        .backgroundColor($r('app.color.page_background'))
+        .border({
+          width: 1,
+          color: $r('app.color.card_border')
+        })
+        .borderRadius(24)
+
+        Column()
+          .height(this.bottomSafeAreaVp + 12)
+          .width('100%')
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: 12, bottom: 8 })
+    }
+    .scrollBar(BarState.Off)
+    .width('100%')
+    .backgroundColor($r('app.color.page_background'))
   }
 
   @Builder
@@ -1170,58 +1309,76 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor($r('app.color.page_background'))
-        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+      Stack({ alignContent: Alignment.Bottom }) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor($r('app.color.page_background'))
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
-      Stack({ alignContent: Alignment.Top }) {
-        Scroll() {
-          Column() {
-            Column()
-              .width('100%')
-              .height(this.topBarScrollInset())
+        Stack({ alignContent: Alignment.Top }) {
+          Scroll() {
+            Column() {
+              Column()
+                .width('100%')
+                .height(this.topBarScrollInset())
 
-            this.ContentArea()
+              this.ContentArea()
 
-            Column()
-              .height(BOTTOM_PORTAL_BAR_CONTENT_INSET + this.bottomSafeAreaVp)
-              .width('100%')
+              Column()
+                .height(BOTTOM_PORTAL_BAR_CONTENT_INSET + this.bottomSafeAreaVp)
+                .width('100%')
+            }
           }
+          .scrollBar(BarState.Off)
+          .onScrollEdge((side: Edge) => {
+            this.handleContentScrollEdge(side);
+          })
+          .width('100%')
+          .layoutWeight(1)
+          .height('100%')
+
+          this.TopBar()
         }
-        .scrollBar(BarState.Off)
-        .onScrollEdge((side: Edge) => {
-          this.handleContentScrollEdge(side);
-        })
         .width('100%')
-        .layoutWeight(1)
         .height('100%')
 
-        this.TopBar()
+        Column() {
+          this.BottomPortalBar()
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
+        .justifyContent(FlexAlign.End)
+        .padding({ bottom: this.bottomSafeAreaVp + BOTTOM_PORTAL_BAR_BASE_OFFSET })
       }
       .width('100%')
       .height('100%')
-
-      Column() {
-        this.BottomPortalBar()
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Center)
-      .justifyContent(FlexAlign.End)
-      .padding({ bottom: this.bottomSafeAreaVp + BOTTOM_PORTAL_BAR_BASE_OFFSET })
-    }
-    .width('100%')
-    .height('100%')
-    .bindSheet($$this.showHomeAccountPanel, this.HomeAccountSheet(), {
+      .bindSheet($$this.showHomeAccountPanel, this.HomeAccountSheet(), {
       showClose: false,
       dragBar: true,
       preferType: SheetType.BOTTOM,
       detents: [540],
-      backgroundColor: '#F5F7FB',
+      backgroundColor: $r('app.color.page_background'),
       onDisappear: () => {
         this.showHomeAccountPanel = false;
       }
     })
+
+      Column()
+        .width(1)
+        .height(1)
+        .bindSheet($$this.showAppearanceSettingsPanel, this.AppearanceSettingsSheet(), {
+          showClose: false,
+          dragBar: true,
+          preferType: SheetType.BOTTOM,
+          detents: [460],
+          backgroundColor: $r('app.color.page_background'),
+          onDisappear: () => {
+            this.showAppearanceSettingsPanel = false;
+          }
+        })
+    }
+    .width('100%')
+    .height('100%')
   }
 }

@@ -1,6 +1,7 @@
-import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { AppearanceSettingsRepository } from '../services/AppearanceSettingsRepository';
 
 const DOMAIN = 0x0000;
 const TAG = 'ZhihuPlusNext';
@@ -10,7 +11,7 @@ const BOTTOM_SAFE_AREA_KEY = 'bottomSafeAreaVp';
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     try {
-      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+      AppearanceSettingsRepository.load(this.context);
     } catch (error) {
       hilog.error(DOMAIN, TAG, 'Failed to set color mode: %{public}s', JSON.stringify(error));
     }
