@@ -106,11 +106,17 @@ export function paragraphizeText(text: string): string {
     .join('');
 }
 
-export function buildArticleHtmlDocument(title: string, contentHtml: string, sourceUrl: string): string {
+export function buildArticleHtmlDocument(
+  title: string,
+  contentHtml: string,
+  sourceUrl: string,
+  initialThemeMode: 'light' | 'dark' = 'light'
+): string {
   const safeTitle = escapeHtml(title);
   const safeSourceUrl = escapeHtml(sourceUrl);
+  const safeThemeMode = initialThemeMode === 'dark' ? 'dark' : 'light';
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-ark-theme="${safeThemeMode}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">

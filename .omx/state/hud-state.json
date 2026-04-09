@@ -1,6 +1,6 @@
 {
-  "last_turn_at": "2026-04-09T08:05:50.662Z",
-  "turn_count": 31,
-  "last_progress_at": "2026-04-09T08:05:50.662Z",
-  "last_agent_output": "“跟随系统”我已经修了。\n\n之前 Web 侧拿到的是字面量 `system`，它在 ArkWeb 里并不会稳定等价于当前真实的亮/暗模式。我现在改成在注入主题脚本前，直接从当前资源配置读取实际颜色模式"
+  "last_turn_at": "2026-04-09T08:09:33.851Z",
+  "turn_count": 32,
+  "last_progress_at": "2026-04-09T08:09:33.851Z",
+  "last_agent_output": "现在两件事都一起处理了：\n\n1. “跟随系统”会先解析成当前真实的 `light/dark`，再注入给 Web。\n2. 首屏 HTML 也直接带上当前解析后的主题，所以不会再先白一下再切黑。\n\n改动在"
 }

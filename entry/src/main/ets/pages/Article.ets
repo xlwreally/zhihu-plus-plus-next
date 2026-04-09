@@ -20,6 +20,7 @@ import { AppearanceThemeMode } from '../services/AppearanceSettingsRepository';
 import { CommentService } from '../services/CommentService';
 import { resolveZhihuContent } from '../services/ZhihuContentResolver';
 import { buildArticleHtmlDocument, escapeHtml } from '../utils/ZhihuHtml';
+import { resolveZhihuThemeMode } from '../utils/ZhihuWebBridge';
 import { formatTimestamp } from '../utils/Time';
 
 const COMMENT_FOOTER_INDENT: number = 46;
@@ -719,7 +720,8 @@ struct Article {
           html: buildArticleHtmlDocument(
             this.detail.title,
             `${buildArticleSummaryHtml(this.detail)}${this.detail.htmlContent}`,
-            this.detail.browserUrl
+            this.detail.browserUrl,
+            resolveZhihuThemeMode(this.context(), this.themeMode)
           ),
           sourceUrl: this.detail.browserUrl,
           title: this.detail.title,
