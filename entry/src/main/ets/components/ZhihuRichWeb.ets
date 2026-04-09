@@ -105,7 +105,10 @@ export struct ZhihuRichWeb {
         this.applyTheme();
       })
       .width('100%')
-      .layoutWeight(this.fillHeight ? 1 : 0)
-      .height(this.fillHeight ? '100%' : `${Math.max(1, Math.ceil(this.heightCssPx))}vp`)
+      .height('100%')
+      .backgroundColor($r('app.color.card_background'))
+    .width('100%')
+    .layoutWeight(this.fillHeight ? 1 : 0)
+    .height(this.fillHeight ? '100%' : `${Math.max(1, Math.ceil(this.heightCssPx))}vp`)
   }
 }
