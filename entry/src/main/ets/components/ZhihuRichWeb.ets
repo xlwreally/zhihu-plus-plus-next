@@ -5,6 +5,7 @@ import { htmlToDataUrl } from '../utils/ZhihuHtml';
 import {
   buildThemeScript,
   loadZhihuWebScripts,
+  resolveZhihuThemeMode,
   ZhihuRichWebEvent,
   ZhihuWebScript,
   ZhihuWebBridgeHost
@@ -62,7 +63,8 @@ export struct ZhihuRichWeb {
     if (!this.contentLoaded) {
       return;
     }
-    this.controller.runJavaScript(buildThemeScript(this.themeMode)).catch(() => {
+    const resolvedThemeMode = resolveZhihuThemeMode(this.context(), this.themeMode);
+    this.controller.runJavaScript(buildThemeScript(resolvedThemeMode)).catch(() => {
     });
   }
 

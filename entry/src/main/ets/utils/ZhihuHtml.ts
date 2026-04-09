@@ -128,6 +128,7 @@ export function buildArticleHtmlDocument(title: string, contentHtml: string, sou
         --blockquote-bg: #f8fafc;
         --code-bg: #eff4fb;
         --target-ring: rgba(29, 78, 216, 0.16);
+        --accent-soft: rgba(29, 78, 216, 0.10);
       }
       * {
         box-sizing: border-box;
@@ -166,7 +167,7 @@ export function buildArticleHtmlDocument(title: string, contentHtml: string, sou
         margin-top: 8px;
         padding: 2px 10px;
         border-radius: 999px;
-        background: rgba(29, 78, 216, 0.10);
+        background: var(--accent-soft);
         color: var(--link);
         font-size: 12px;
       }
@@ -187,7 +188,7 @@ export function buildArticleHtmlDocument(title: string, contentHtml: string, sou
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        background: rgba(29, 78, 216, 0.10);
+        background: var(--accent-soft);
         color: var(--link);
         font-weight: 700;
       }
@@ -311,6 +312,7 @@ export function buildArticleHtmlDocument(title: string, contentHtml: string, sou
         --blockquote-bg: #111a22;
         --code-bg: #111a22;
         --target-ring: rgba(169, 199, 255, 0.2);
+        --accent-soft: rgba(169, 199, 255, 0.14);
       }
       html[data-ark-theme="light"] {
         --page-bg: #f5f7fb;
@@ -322,6 +324,7 @@ export function buildArticleHtmlDocument(title: string, contentHtml: string, sou
         --blockquote-bg: #f8fafc;
         --code-bg: #eff4fb;
         --target-ring: rgba(29, 78, 216, 0.16);
+        --accent-soft: rgba(29, 78, 216, 0.10);
       }
       @media (prefers-color-scheme: dark) {
         html:not([data-ark-theme]) {
@@ -334,6 +337,7 @@ export function buildArticleHtmlDocument(title: string, contentHtml: string, sou
           --blockquote-bg: #111a22;
           --code-bg: #111a22;
           --target-ring: rgba(169, 199, 255, 0.2);
+          --accent-soft: rgba(169, 199, 255, 0.14);
         }
       }
     </style>

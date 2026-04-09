@@ -71,18 +71,23 @@ export function normalizeZhihuThemeMode(themeMode: AppearanceThemeMode): 'light'
   return 'system';
 }
 
-export function buildThemeScript(themeMode: AppearanceThemeMode): string {
+export function resolveZhihuThemeMode(context: common.Context, themeMode: AppearanceThemeMode): 'light' | 'dark' {
   const normalized = normalizeZhihuThemeMode(themeMode);
-  if (normalized === 'system') {
-    return `
-      (function () {
-        document.documentElement.removeAttribute('data-ark-theme');
-      })();
-    `;
+  if (normalized !== 'system') {
+    return normalized;
   }
+  try {
+    const configuration = context.resourceManager.getConfigurationSync();
+    return configuration.colorMode === 0 ? 'dark' : 'light';
+  } catch (_) {
+    return 'light';
+  }
+}
+
+export function buildThemeScript(themeMode: 'light' | 'dark'): string {
   return `
     (function () {
-      document.documentElement.setAttribute('data-ark-theme', '${normalized}');
+      document.documentElement.setAttribute('data-ark-theme', '${themeMode}');
     })();
   `;
 }
