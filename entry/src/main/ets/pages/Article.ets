@@ -1,12 +1,12 @@
 import common from '@ohos.app.ability.common';
 import { promptAction, router } from '@kit.ArkUI';
-import { webview } from '@kit.ArkWeb';
 import {
   ArticlePageParams,
   CommentSortOrder,
   contentTargetDisplayTitle,
   parseZhihuContentTarget,
   rootContentTarget,
+  serializeZhihuContentTarget,
   ZhihuCommentItem,
   ZhihuCommentTarget,
   ZhihuContentDetail,
@@ -14,9 +14,12 @@ import {
   ZhihuVoteState
 } from '../models/ZhihuContentModels';
 import { SessionSnapshot, DEFAULT_SESSION_SNAPSHOT } from '../models/ZhihuModels';
+import { ZhihuRichWeb } from '../components/ZhihuRichWeb';
 import { ArticleDetailService } from '../services/ArticleDetailService';
+import { AppearanceThemeMode } from '../services/AppearanceSettingsRepository';
 import { CommentService } from '../services/CommentService';
-import { buildArticleHtmlDocument, htmlToDataUrl } from '../utils/ZhihuHtml';
+import { resolveZhihuContent } from '../services/ZhihuContentResolver';
+import { buildArticleHtmlDocument, escapeHtml } from '../utils/ZhihuHtml';
 import { formatTimestamp } from '../utils/Time';
 
 const COMMENT_FOOTER_INDENT: number = 46;
@@ -35,6 +38,41 @@ function formatUnixTime(seconds: number): string {
     return '';
   }
   return formatTimestamp(new Date(seconds * 1000));
+}
+
+function buildArticleSummaryHtml(detail: ZhihuContentDetail): string {
+  const title = detail.target.kind === 'answer' && detail.questionTitle.length > 0 ? detail.questionTitle : detail.title;
+  const summaryBadge = detail.target.kind === 'answer' ? '<div class="zhihu-summary-badge">回答详情</div>' : '';
+  const avatarHtml = (detail.author?.avatarUrl ?? '').length > 0
+    ? `<img class="zhihu-summary-avatar" data-zhihu-ignore-image-click="true" src="${escapeHtml(detail.author?.avatarUrl ?? '')}" alt="${escapeHtml(detail.author?.name ?? detail.title)}">`
+    : `<div class="zhihu-summary-avatar zhihu-summary-avatar-fallback" data-zhihu-ignore-image-click="true">${escapeHtml((detail.author?.name ?? '知').slice(0, 1))}</div>`;
+  const headlineHtml = (detail.author?.headline ?? '').length > 0
+    ? `<p class="zhihu-summary-author-headline">${escapeHtml(detail.author?.headline ?? '')}</p>`
+    : '';
+  const metaItems: string[] = [
+    `<span>${escapeHtml(formatCounter(detail.voteCount, detail.canVote ? '赞同' : '喜欢'))}</span>`,
+    `<span>${escapeHtml(formatCounter(detail.commentCount, '评论'))}</span>`
+  ];
+  const timeText = formatUnixTime(detail.updatedTime || detail.createdTime || 0);
+  if (timeText.length > 0) {
+    metaItems.push(`<span>${escapeHtml(timeText)}</span>`);
+  }
+  if (detail.ipInfo.length > 0) {
+    metaItems.push(`<span>${escapeHtml(detail.ipInfo)}</span>`);
+  }
+
+  return `<section class="zhihu-summary-card">
+    <h1 class="zhihu-summary-title">${escapeHtml(title)}</h1>
+    ${summaryBadge}
+    <div class="zhihu-summary-author">
+      ${avatarHtml}
+      <div>
+        <p class="zhihu-summary-author-name">${escapeHtml(detail.author?.name ?? detail.title)}</p>
+        ${headlineHtml}
+      </div>
+    </div>
+    <div class="zhihu-summary-meta">${metaItems.join('')}</div>
+  </section>`;
 }
 
 function mergeComments(existing: ZhihuCommentItem[], incoming: ZhihuCommentItem[]): ZhihuCommentItem[] {
@@ -145,8 +183,8 @@ function updateCommentLike(comments: ZhihuCommentItem[], commentId: string, like
 struct Article {
   @StorageProp('topSafeAreaVp') private topSafeAreaVp: number = 0;
   @StorageProp('bottomSafeAreaVp') private bottomSafeAreaVp: number = 0;
+  @StorageProp('themeMode') private themeMode: AppearanceThemeMode = 'system';
   @StorageProp('sessionSnapshot') private sessionSnapshot: SessionSnapshot = DEFAULT_SESSION_SNAPSHOT;
-  private readonly contentWebController: webview.WebviewController = new webview.WebviewController();
   @State private target?: ZhihuContentTarget = undefined;
   @State private fallbackTitle: string = '';
   @State private fallbackUrl: string = '';
@@ -154,7 +192,6 @@ struct Article {
   @State private pageTitle: string = '内容详情';
   @State private articleLoading: boolean = true;
   @State private articleError: string = '';
-  @State private webDataUrl: string = '';
   @State private showRootCommentSheet: boolean = false;
   @State private rootComments: ZhihuCommentItem[] = [];
   @State private rootCommentSortOrder: CommentSortOrder = 'score';
@@ -215,7 +252,6 @@ struct Article {
       const detail = await ArticleDetailService.loadDetail(this.context(), rootTargetValue);
       this.detail = detail;
       this.pageTitle = detail.title;
-      this.webDataUrl = htmlToDataUrl(buildArticleHtmlDocument(detail.title, detail.htmlContent, detail.browserUrl));
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误';
       this.articleError = `详情加载失败：${message}`;
@@ -249,6 +285,52 @@ struct Article {
       url: 'pages/WebContent',
       params: { title, url }
     });
+  }
+
+  private openImage(url: string): void {
+    if (url.trim().length === 0) {
+      return;
+    }
+    router.pushUrl({
+      url: 'pages/WebContent',
+      params: {
+        title: '图片',
+        url
+      }
+    });
+  }
+
+  private openBodyLink(url: string, text: string): void {
+    const normalized = url.trim();
+    if (normalized.length === 0) {
+      return;
+    }
+
+    const zhihuTarget = resolveZhihuContent(normalized);
+    if (zhihuTarget !== undefined) {
+      router.pushUrl({
+        url: 'pages/Article',
+        params: {
+          target: serializeZhihuContentTarget(zhihuTarget),
+          fallbackTitle: text,
+          fallbackUrl: normalized
+        }
+      });
+      return;
+    }
+
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      router.pushUrl({
+        url: 'pages/WebContent',
+        params: {
+          title: text.length > 0 ? text : '网页',
+          url: normalized
+        }
+      });
+      return;
+    }
+
+    this.showToast('暂不支持打开该链接');
   }
 
   private async ensureRootComments(forceReload: boolean = false): Promise<void> {
@@ -633,10 +715,23 @@ struct Article {
       .padding({ top: 60, left: 24, right: 24 })
     } else {
       Column() {
-        this.ArticleSummary()
-        Web({ src: this.webDataUrl, controller: this.contentWebController })
-          .layoutWeight(1)
-          .width('100%')
+        ZhihuRichWeb({
+          html: buildArticleHtmlDocument(
+            this.detail.title,
+            `${buildArticleSummaryHtml(this.detail)}${this.detail.htmlContent}`,
+            this.detail.browserUrl
+          ),
+          sourceUrl: this.detail.browserUrl,
+          title: this.detail.title,
+          themeMode: this.themeMode,
+          fillHeight: true,
+          onLinkTap: (url: string, text: string) => {
+            this.openBodyLink(url, text);
+          },
+          onImageTap: (url: string) => {
+            this.openImage(url);
+          }
+        })
       }
       .width('100%')
       .layoutWeight(1)
@@ -816,7 +911,6 @@ struct Article {
       })
   }
 
-  @Builder
   @Builder
   private CommentSheetStatus(message: string, error: boolean = false): void {
     Column({ space: 8 }) {

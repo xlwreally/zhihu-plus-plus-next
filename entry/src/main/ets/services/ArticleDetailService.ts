@@ -6,7 +6,7 @@ import {
   ZhihuContentDetail,
   ZhihuVoteState
 } from '../models/ZhihuContentModels';
-import { escapeHtml, paragraphizeText } from '../utils/ZhihuHtml';
+import { escapeHtml, normalizeRichContentHtml, paragraphizeText } from '../utils/ZhihuHtml';
 import { ZhihuApi } from './ZhihuApi';
 import { ZhihuEmojiService } from './ZhihuEmojiService';
 
@@ -99,6 +99,10 @@ export class ArticleDetailService {
     return permission !== 'close' && permission !== 'closed';
   }
 
+  private static sanitizeBodyHtml(html: string): string {
+    return ZhihuEmojiService.replaceHtml(normalizeRichContentHtml(html));
+  }
+
   private static buildPinHtml(payload: JsonObject): string {
     const contentHtml = this.stringValue(payload.content_html) || this.stringValue(payload.contentHtml);
     if (contentHtml.length > 0) {
@@ -174,7 +178,7 @@ export class ArticleDetailService {
         }),
         author: this.mapAuthor(this.objectValue(payload.author)),
         excerpt: this.stringValue(payload.excerpt),
-        htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
+        htmlContent: this.sanitizeBodyHtml(rawHtmlContent),
         commentCount: this.numberValue(payload.comment_count),
         voteCount: this.numberValue(payload.voteup_count),
         voteState: this.mapVoteState(payload),
@@ -203,7 +207,7 @@ export class ArticleDetailService {
         browserUrl: this.stringValue(payload.url) || contentTargetUrl(target),
         author: this.mapAuthor(this.objectValue(payload.author)),
         excerpt: this.stringValue(payload.excerpt),
-        htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
+        htmlContent: this.sanitizeBodyHtml(rawHtmlContent),
         commentCount: this.numberValue(payload.comment_count),
         voteCount: this.numberValue(payload.voteup_count),
         voteState: this.mapVoteState(payload),
@@ -232,7 +236,7 @@ export class ArticleDetailService {
         browserUrl: this.stringValue(payload.url) || contentTargetUrl(target),
         author: this.mapAuthor(this.objectValue(payload.author)),
         excerpt: this.stringValue(payload.excerpt),
-        htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
+        htmlContent: this.sanitizeBodyHtml(rawHtmlContent),
         commentCount: this.numberValue(payload.comment_count),
         voteCount: this.numberValue(payload.voteup_count),
         voteState: 'none',
@@ -262,7 +266,7 @@ export class ArticleDetailService {
       browserUrl: this.stringValue(payload.url) || contentTargetUrl(target),
       author,
       excerpt: this.stringValue(payload.excerpt_title),
-      htmlContent: ZhihuEmojiService.replaceHtml(rawHtmlContent),
+      htmlContent: this.sanitizeBodyHtml(rawHtmlContent),
       commentCount: this.numberValue(payload.comment_count),
       voteCount: this.numberValue(payload.like_count),
       voteState: 'none',
