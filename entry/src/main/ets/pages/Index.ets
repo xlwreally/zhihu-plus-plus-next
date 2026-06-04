@@ -6,7 +6,6 @@ import { DEFAULT_SESSION_SNAPSHOT, HomeFeedItem, SessionSnapshot } from '../mode
 import { HomeFeedService } from '../services/HomeFeedService';
 import { HotListService } from '../services/HotListService';
 import { LocalDebugSessionService } from '../services/LocalDebugSessionService';
-import { HotSearchItem, SearchService } from '../services/SearchService';
 import { resolveZhihuContent } from '../services/ZhihuContentResolver';
 import { ZhihuSessionRepository } from '../services/ZhihuSessionRepository';
 import { AppearanceSettingsRepository, AppearanceThemeMode } from '../services/AppearanceSettingsRepository';
@@ -97,9 +96,6 @@ struct Index {
   @State private hotError: string = '';
   @State private hotNextUrl: string = '';
   @State private hotHasLoaded: boolean = false;
-  @State private hotSearchItems: HotSearchItem[] = [];
-  @State private hotSearchLoading: boolean = false;
-  @State private hotSearchError: string = '';
   @State private historyItems: HomeFeedItem[] = [];
   @State private showHomeAccountPanel: boolean = false;
   @State private showAppearanceSettingsPanel: boolean = false;
@@ -121,9 +117,6 @@ struct Index {
     }
     if (this.selectedPortalTab === 'hot' && !this.hotHasLoaded) {
       this.loadHotFirstPage();
-    }
-    if (this.selectedPortalTab === 'hot' && this.hotSearchItems.length === 0) {
-      this.loadHotSearchRank();
     }
     if (this.selectedPortalTab === 'history') {
       this.loadHistoryItems();
@@ -281,17 +274,6 @@ struct Index {
   private openSearchPage(): void {
     router.pushUrl({
       url: 'pages/Search'
-    });
-  }
-
-  private openSearchPageWithQuery(query: string): void {
-    const nextQuery = query.trim();
-    if (nextQuery.length === 0) {
-      return;
-    }
-    router.pushUrl({
-      url: 'pages/Search',
-      params: { query: nextQuery }
     });
   }
 
@@ -458,28 +440,11 @@ struct Index {
     }
   }
 
-  private async loadHotSearchRank(): Promise<void> {
-    if (this.hotSearchLoading) {
-      return;
-    }
-    this.hotSearchLoading = true;
-    this.hotSearchError = '';
-    try {
-      this.hotSearchItems = await SearchService.loadHotSearch();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '未知错误';
-      this.hotSearchError = `热搜加载失败：${message}`;
-    } finally {
-      this.hotSearchLoading = false;
-    }
-  }
-
   private refreshHotPage(): void {
     this.hotHasLoaded = false;
     this.hotItems = [];
     this.hotNextUrl = '';
     this.loadHotFirstPage();
-    this.loadHotSearchRank();
   }
 
   private async loadMoreHot(): Promise<void> {
@@ -1503,121 +1468,6 @@ struct Index {
   }
 
   @Builder
-  private HotSearchRankPanel(): void {
-    Column({ space: 0 }) {
-      Row() {
-        Column({ space: 2 }) {
-          Text('知乎热搜')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_primary'))
-
-          Text('实时搜索排行')
-            .fontSize(12)
-            .fontColor($r('app.color.text_secondary'))
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-
-        Text(this.hotSearchLoading ? '刷新中' : '刷新')
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.hotSearchLoading ? $r('app.color.text_tertiary') : $r('app.color.action_text'))
-          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-          .backgroundColor($r('app.color.action_background'))
-          .borderRadius(16)
-          .enabled(!this.hotSearchLoading)
-          .onClick(() => {
-            this.loadHotSearchRank();
-          })
-      }
-      .alignItems(VerticalAlign.Center)
-      .width('100%')
-      .padding({ left: 18, right: 18, top: 16, bottom: 10 })
-
-      if (this.hotSearchError.length > 0) {
-        Text(this.hotSearchError)
-          .fontSize(12)
-          .fontColor($r('app.color.error_text'))
-          .padding({ left: 18, right: 18, top: 0, bottom: 10 })
-      }
-
-      if (this.hotSearchLoading && this.hotSearchItems.length === 0) {
-        Text('正在加载知乎热搜...')
-          .fontSize(14)
-          .fontColor($r('app.color.text_secondary'))
-          .padding({ left: 18, right: 18, top: 18, bottom: 22 })
-      } else if (this.hotSearchItems.length === 0) {
-        Text('热搜暂时为空')
-          .fontSize(14)
-          .fontColor($r('app.color.text_secondary'))
-          .padding({ left: 18, right: 18, top: 18, bottom: 22 })
-      } else {
-        ForEach(this.hotSearchItems.slice(0, 10), (item: HotSearchItem, index: number) => {
-          Row({ space: 12 }) {
-            Text(`${index + 1}`)
-              .fontSize(16)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(index < 3 ? $r('app.color.error_text') : $r('app.color.text_tertiary'))
-              .width(30)
-              .textAlign(TextAlign.Center)
-
-            Column({ space: 4 }) {
-              Row({ space: 8 }) {
-                Text(item.query)
-                  .fontSize(16)
-                  .fontWeight(index < 3 ? FontWeight.Bold : FontWeight.Medium)
-                  .fontColor($r('app.color.text_primary'))
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
-
-                if (item.label.length > 0) {
-                  Text(item.label)
-                    .fontSize(10)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor($r('app.color.error_text'))
-                    .padding({ left: 5, right: 5, top: 2, bottom: 2 })
-                    .backgroundColor('#14F1403C')
-                    .borderRadius(5)
-                }
-              }
-              .width('100%')
-              .alignItems(VerticalAlign.Center)
-
-              if (item.hotShow.length > 0) {
-                Text(item.hotShow)
-                  .fontSize(12)
-                  .fontColor($r('app.color.text_secondary'))
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }
-            }
-            .layoutWeight(1)
-            .alignItems(HorizontalAlign.Start)
-          }
-          .width('100%')
-          .alignItems(VerticalAlign.Center)
-          .padding({ left: 14, right: 16, top: 11, bottom: 11 })
-          .backgroundColor($r('app.color.card_background'))
-          .onClick(() => {
-            this.openSearchPageWithQuery(item.query);
-          })
-        }, (item: HotSearchItem) => item.query)
-      }
-    }
-    .width('100%')
-    .margin({ left: 16, right: 16, bottom: 12 })
-    .backgroundColor($r('app.color.card_background'))
-    .border({
-      width: 1,
-      color: $r('app.color.card_border')
-    })
-    .borderRadius(16)
-    .clip(true)
-  }
-
-  @Builder
   private HotFeedCard(item: HomeFeedItem, index: number): void {
     Row({ space: 12 }) {
       Column({ space: 2 }) {
@@ -1747,8 +1597,6 @@ struct Index {
       .padding({ top: 120 })
     } else {
       Column() {
-        this.HotSearchRankPanel();
-
         Row() {
           Column({ space: 2 }) {
             Text('热榜')
@@ -2125,9 +1973,6 @@ struct Index {
       } else if (item.key === 'hot') {
         if (!this.hotHasLoaded) {
           this.loadHotFirstPage();
-        }
-        if (this.hotSearchItems.length === 0) {
-          this.loadHotSearchRank();
         }
       } else if (item.key === 'daily' && this.dailySections.length === 0) {
         this.loadLatestDaily();
