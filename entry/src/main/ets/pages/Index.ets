@@ -34,7 +34,9 @@ interface FollowFeedTabOption {
 }
 
 const TOP_BAR_BASE_PADDING: number = 10;
-const TOP_BAR_SCROLL_INSET: number = 68;
+const HOME_TOP_BAR_SCROLL_INSET: number = 94;
+const DEFAULT_TOP_BAR_SCROLL_INSET: number = 96;
+const FOLLOW_TOP_BAR_SCROLL_INSET: number = 150;
 const BOTTOM_PORTAL_BAR_CONTENT_INSET: number = 84;
 const BOTTOM_PORTAL_BAR_BASE_OFFSET: number = 8;
 const SEARCH_PAGE_URL: string = 'https://www.zhihu.com/search?type=content&q=';
@@ -451,7 +453,13 @@ struct Index {
   }
 
   private topBarScrollInset(): number {
-    return this.topSafeAreaVp + TOP_BAR_SCROLL_INSET;
+    if (this.selectedPortalTab === 'home') {
+      return this.topSafeAreaVp + HOME_TOP_BAR_SCROLL_INSET;
+    }
+    if (this.selectedPortalTab === 'follow' && this.sessionSnapshot.loggedIn) {
+      return this.topSafeAreaVp + FOLLOW_TOP_BAR_SCROLL_INSET;
+    }
+    return this.topSafeAreaVp + DEFAULT_TOP_BAR_SCROLL_INSET;
   }
 
   @Builder
@@ -598,15 +606,28 @@ struct Index {
       .width('100%')
     } else {
       Stack() {
-        Column({ space: 2 }) {
-          Text(this.portalTitle(this.selectedPortalTab))
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_primary'))
+        Column({ space: 12 }) {
+          Column({ space: 2 }) {
+            Text(this.portalTitle(this.selectedPortalTab))
+              .fontSize(24)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_primary'))
 
-          Text(this.topBarSubtitle())
-            .fontSize(12)
-            .fontColor($r('app.color.text_secondary'))
+            Text(this.topBarSubtitle())
+              .fontSize(12)
+              .fontColor($r('app.color.text_secondary'))
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+
+          if (this.selectedPortalTab === 'follow' && this.sessionSnapshot.loggedIn) {
+            Row({ space: 8 }) {
+              ForEach(FOLLOW_FEED_TABS, (option: FollowFeedTabOption) => {
+                this.FollowTabChip(option);
+              }, (option: FollowFeedTabOption) => option.key)
+            }
+            .width('100%')
+          }
         }
         .alignItems(HorizontalAlign.Start)
         .width('100%')
@@ -1395,14 +1416,6 @@ struct Index {
       .padding({ top: 120, left: 30, right: 30 })
     } else {
       Column({ space: 12 }) {
-        Row({ space: 8 }) {
-          ForEach(FOLLOW_FEED_TABS, (option: FollowFeedTabOption) => {
-            this.FollowTabChip(option);
-          }, (option: FollowFeedTabOption) => option.key)
-        }
-        .width('100%')
-        .padding({ left: 18, right: 18, top: 4, bottom: 4 })
-
         if (this.followLoading() && !this.followHasLoaded()) {
           Column({ space: 10 }) {
             Text('正在加载关注流...')
