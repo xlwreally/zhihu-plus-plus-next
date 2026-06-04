@@ -28,10 +28,42 @@ export function resolveZhihuContent(url: string): ZhihuCommentableTarget | undef
     };
   }
 
+  match = normalized.match(/^https?:\/\/(?:(?:www\.)?zhihu\.com\/api|api\.zhihu\.com)\/v\d+\/answers\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'answer',
+      id: match[1]
+    };
+  }
+
+  match = normalized.match(/^https?:\/\/api\.zhihu\.com\/answers\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'answer',
+      id: match[1]
+    };
+  }
+
   match = normalized.match(/^https?:\/\/(?:www\.)?zhihu\.com\/answer\/(\d+)$/i);
   if (match !== null) {
     return {
       kind: 'answer',
+      id: match[1]
+    };
+  }
+
+  match = normalized.match(/^https?:\/\/(?:(?:www\.)?zhihu\.com\/api|api\.zhihu\.com)\/v\d+\/articles\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'article',
+      id: match[1]
+    };
+  }
+
+  match = normalized.match(/^https?:\/\/api\.zhihu\.com\/articles\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'article',
       id: match[1]
     };
   }
@@ -44,10 +76,42 @@ export function resolveZhihuContent(url: string): ZhihuCommentableTarget | undef
     };
   }
 
+  match = normalized.match(/^https?:\/\/(?:(?:www\.)?zhihu\.com\/api|api\.zhihu\.com)\/v\d+\/questions\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'question',
+      id: match[1]
+    };
+  }
+
+  match = normalized.match(/^https?:\/\/api\.zhihu\.com\/questions\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'question',
+      id: match[1]
+    };
+  }
+
   match = normalized.match(/^https?:\/\/(?:www\.)?zhihu\.com\/question\/(\d+)$/i);
   if (match !== null) {
     return {
       kind: 'question',
+      id: match[1]
+    };
+  }
+
+  match = normalized.match(/^https?:\/\/(?:(?:www\.)?zhihu\.com\/api|api\.zhihu\.com)\/v\d+\/pins\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'pin',
+      id: match[1]
+    };
+  }
+
+  match = normalized.match(/^https?:\/\/api\.zhihu\.com\/pins\/(\d+)$/i);
+  if (match !== null) {
+    return {
+      kind: 'pin',
       id: match[1]
     };
   }

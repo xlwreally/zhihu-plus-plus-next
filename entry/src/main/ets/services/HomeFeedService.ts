@@ -1,7 +1,8 @@
-import { ZhihuCommentableTarget } from '../models/ZhihuContentModels';
+import { contentTargetUrl, ZhihuCommentableTarget } from '../models/ZhihuContentModels';
 import common from '@ohos.app.ability.common';
 import { HomeFeedItem, HomeFeedPage, TextHighlightSegment } from '../models/ZhihuModels';
 import { ZhihuApi } from './ZhihuApi';
+import { resolveZhihuContent } from './ZhihuContentResolver';
 import { decodeHtmlEntities, stripHtmlToText } from '../utils/ZhihuHtml';
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
@@ -99,6 +100,10 @@ export class HomeFeedService {
 
   private static resolveTargetUrl(targetType: string, target: JsonObject, rawFeed: JsonObject): string {
     const originalUrl = this.stringValue(target.url);
+    const resolvedOriginal = resolveZhihuContent(originalUrl);
+    if (resolvedOriginal !== undefined) {
+      return contentTargetUrl(resolvedOriginal);
+    }
     if (originalUrl.startsWith('https://www.zhihu.com/')
       || originalUrl.startsWith('https://zhuanlan.zhihu.com/')
       || originalUrl.startsWith('https://www.zhihu.com/pin/')) {
@@ -127,6 +132,10 @@ export class HomeFeedService {
   }
 
   private static stableItemId(type: string, target: JsonObject, rawFeed: JsonObject): string {
+    const exactTargetId = this.exactTargetIdFromUrl(type, target, rawFeed);
+    if (exactTargetId.length > 0) {
+      return `${type}:${exactTargetId}`;
+    }
     const targetId = this.idValue(target.id);
     if (targetId.length > 0) {
       return `${type}:${targetId}`;
@@ -159,6 +168,53 @@ export class HomeFeedService {
     return '';
   }
 
+  private static exactTargetIdFromUrl(type: string, target: JsonObject, rawFeed: JsonObject): string {
+    const originalUrl = this.stringValue(target.url);
+    const resolvedOriginal = resolveZhihuContent(originalUrl);
+    if (resolvedOriginal !== undefined && resolvedOriginal.kind === type) {
+      return resolvedOriginal.id;
+    }
+    const resolvedTarget = resolveZhihuContent(this.resolveTargetUrl(type, target, rawFeed));
+    if (resolvedTarget !== undefined && resolvedTarget.kind === type) {
+      return resolvedTarget.id;
+    }
+    return '';
+  }
+
+  private static exactQuestionId(question: JsonObject): string {
+    const resolved = resolveZhihuContent(this.stringValue(question.url));
+    if (resolved !== undefined && resolved.kind === 'question') {
+      return resolved.id;
+    }
+    return this.idValue(question.id);
+  }
+
+  private static nativeTargetFromUrl(
+    type: string,
+    target: JsonObject,
+    rawFeed: JsonObject,
+    title: string
+  ): ZhihuCommentableTarget | undefined {
+    const originalUrl = this.stringValue(target.url);
+    const resolvedOriginal = resolveZhihuContent(originalUrl);
+    const resolvedTarget = resolvedOriginal ?? resolveZhihuContent(this.resolveTargetUrl(type, target, rawFeed));
+    if (resolvedTarget === undefined || resolvedTarget.kind !== type) {
+      return undefined;
+    }
+    if (resolvedTarget.kind === 'answer') {
+      return {
+        kind: 'answer',
+        id: resolvedTarget.id,
+        questionId: resolvedTarget.questionId,
+        title
+      };
+    }
+    return {
+      ...resolvedTarget,
+      title
+    };
+  }
+
   private static mapTarget(target: JsonObject, rawFeed: JsonObject): HomeFeedItem | undefined {
     const targetType = this.stringValue(target.type);
     const actionText = this.stringValue(rawFeed.action_text) || this.stringValue(rawFeed.detail_text);
@@ -167,13 +223,13 @@ export class HomeFeedService {
     let nativeTarget: ZhihuCommentableTarget | undefined;
 
     if (targetType === 'answer') {
-      nativeTarget = {
+      const title = this.stringValue(question.title) || this.stringValue(question.name);
+      nativeTarget = this.nativeTargetFromUrl('answer', target, rawFeed, title) ?? {
         kind: 'answer',
         id: this.idValue(target.id),
-        questionId: this.idValue(question.id),
-        title: this.stringValue(question.title) || this.stringValue(question.name)
+        questionId: this.exactQuestionId(question),
+        title
       };
-      const title = this.stringValue(question.title) || this.stringValue(question.name);
       return {
         id: this.stableItemId('answer', target, rawFeed),
         type: 'answer',
@@ -191,15 +247,16 @@ export class HomeFeedService {
     }
 
     if (targetType === 'article') {
-      nativeTarget = {
+      const title = this.stringValue(target.title);
+      nativeTarget = this.nativeTargetFromUrl('article', target, rawFeed, title) ?? {
         kind: 'article',
         id: this.idValue(target.id),
-        title: this.stringValue(target.title)
+        title
       };
       return {
         id: this.stableItemId('article', target, rawFeed),
         type: 'article',
-        title: this.stringValue(target.title),
+        title,
         summary: this.stringValue(target.excerpt),
         details: this.joinDetails(`文章 · ${this.numberValue(target.voteup_count)} 赞同 · ${this.numberValue(target.comment_count)} 评论`, actionText),
         authorName: this.stringValue(author.name),
@@ -213,15 +270,16 @@ export class HomeFeedService {
     }
 
     if (targetType === 'question') {
-      nativeTarget = {
+      const title = this.stringValue(target.title) || this.stringValue(target.name);
+      nativeTarget = this.nativeTargetFromUrl('question', target, rawFeed, title) ?? {
         kind: 'question',
         id: this.idValue(target.id),
-        title: this.stringValue(target.title) || this.stringValue(target.name)
+        title
       };
       return {
         id: this.stableItemId('question', target, rawFeed),
         type: 'question',
-        title: this.stringValue(target.title) || this.stringValue(target.name),
+        title,
         summary: this.stringValue(target.excerpt),
         details: this.joinDetails(`问题 · ${this.numberValue(target.follower_count)} 关注 · ${this.numberValue(target.answer_count)} 回答`, actionText),
         authorName: '',
@@ -236,15 +294,16 @@ export class HomeFeedService {
 
     if (targetType === 'pin') {
       const authorName = this.stringValue(author.name);
-      nativeTarget = {
+      const title = authorName.length > 0 ? `${authorName}的想法` : '想法';
+      nativeTarget = this.nativeTargetFromUrl('pin', target, rawFeed, title) ?? {
         kind: 'pin',
         id: this.idValue(target.id),
-        title: authorName.length > 0 ? `${authorName}的想法` : '想法'
+        title
       };
       return {
         id: this.stableItemId('pin', target, rawFeed),
         type: 'pin',
-        title: authorName.length > 0 ? `${authorName}的想法` : '想法',
+        title,
         summary: this.stringValue(target.excerpt_title),
         details: this.joinDetails(`想法 · ${this.numberValue(target.like_count)} 赞 · ${this.numberValue(target.comment_count)} 评论`, actionText),
         authorName,
