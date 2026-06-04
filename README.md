@@ -97,9 +97,23 @@ git clone --recurse-submodules https://github.com/xlwreally/zhihu-plus-plus-next
 - 支持最近浏览列表回跳
 - 支持清空最近浏览
 
+## 当前搜索页能力
+
+- 支持知乎热搜展示与刷新
+- 支持原生搜索输入页
+- 支持搜索结果分页
+- 支持复用内容卡片并跳转原生内容详情或网页兜底页
+
+## 当前热榜页能力
+
+- 支持知乎热榜一级入口
+- 支持游客访问热榜信息流
+- 支持刷新与继续加载更多热榜内容
+- 支持复用内容卡片并跳转原生内容详情或网页兜底页
+
 ## 当前限制
 
-- 热榜、在线历史、原生搜索和完整账号设置页仍未迁移
+- 在线历史和完整账号设置页仍未迁移
 - 历史页当前是 Harmony 侧本地最近浏览，不是 Android 原项目的在线历史页
 - `ZhihuApi.ts` 当前仍有一个 ArkTS 编译警告待清理，但不影响构建
 
@@ -114,9 +128,7 @@ git clone --recurse-submodules https://github.com/xlwreally/zhihu-plus-plus-next
    - `ZhihuApi`
    - `ZhihuSignerBridge`
 5. 然后实现剩余主要入口与设置：
-   - 热榜
    - 在线历史
-   - 原生搜索
    - 完整登录与账号设置
 
 ## 本地预览构建

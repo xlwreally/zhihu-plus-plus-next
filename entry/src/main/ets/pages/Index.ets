@@ -4,6 +4,7 @@ import { serializeZhihuContentTarget, ZhihuCommentableTarget } from '../models/Z
 import { DailyService, DailyStoriesPage, DailyStory } from '../services/DailyService';
 import { DEFAULT_SESSION_SNAPSHOT, HomeFeedItem, SessionSnapshot } from '../models/ZhihuModels';
 import { HomeFeedService } from '../services/HomeFeedService';
+import { HotListService } from '../services/HotListService';
 import { LocalDebugSessionService } from '../services/LocalDebugSessionService';
 import { resolveZhihuContent } from '../services/ZhihuContentResolver';
 import { ZhihuSessionRepository } from '../services/ZhihuSessionRepository';
@@ -11,7 +12,7 @@ import { AppearanceSettingsRepository, AppearanceThemeMode } from '../services/A
 import { FollowFeedService, FollowFeedTab } from '../services/FollowFeedService';
 import { BrowsingHistoryRepository } from '../services/BrowsingHistoryRepository';
 
-type AppPortalKey = 'home' | 'follow' | 'daily' | 'history';
+type AppPortalKey = 'home' | 'follow' | 'hot' | 'daily' | 'history';
 
 interface AppPortalOption {
   readonly key: AppPortalKey;
@@ -39,7 +40,6 @@ const DEFAULT_TOP_BAR_SCROLL_INSET: number = 96;
 const FOLLOW_TOP_BAR_SCROLL_INSET: number = 150;
 const BOTTOM_PORTAL_BAR_CONTENT_INSET: number = 84;
 const BOTTOM_PORTAL_BAR_BASE_OFFSET: number = 8;
-const SEARCH_PAGE_URL: string = 'https://www.zhihu.com/search?type=content&q=';
 const THEME_MODE_OPTIONS: ThemeModeOptionItem[] = [
   { mode: 'light', label: '日间' },
   { mode: 'dark', label: '黑暗' },
@@ -49,6 +49,7 @@ const THEME_MODE_OPTIONS: ThemeModeOptionItem[] = [
 const APP_PORTAL_TABS: AppPortalOption[] = [
   { key: 'home', title: '主页' },
   { key: 'follow', title: '关注' },
+  { key: 'hot', title: '热榜' },
   { key: 'daily', title: '日报' },
   { key: 'history', title: '历史' }
 ];
@@ -89,6 +90,12 @@ struct Index {
   @State private followDynamicError: string = '';
   @State private followDynamicNextUrl: string = '';
   @State private followDynamicHasLoaded: boolean = false;
+  @State private hotItems: HomeFeedItem[] = [];
+  @State private hotLoading: boolean = false;
+  @State private hotLoadingMore: boolean = false;
+  @State private hotError: string = '';
+  @State private hotNextUrl: string = '';
+  @State private hotHasLoaded: boolean = false;
   @State private historyItems: HomeFeedItem[] = [];
   @State private showHomeAccountPanel: boolean = false;
   @State private showAppearanceSettingsPanel: boolean = false;
@@ -107,6 +114,9 @@ struct Index {
     }
     if (this.selectedPortalTab === 'follow' && this.sessionSnapshot.loggedIn && !this.followHasLoaded()) {
       this.loadFollowFirstPage(this.followTab);
+    }
+    if (this.selectedPortalTab === 'hot' && !this.hotHasLoaded) {
+      this.loadHotFirstPage();
     }
     if (this.selectedPortalTab === 'history') {
       this.loadHistoryItems();
@@ -133,6 +143,9 @@ struct Index {
     }
     if (tab === 'follow') {
       return '关注';
+    }
+    if (tab === 'hot') {
+      return '知乎热榜';
     }
     if (tab === 'daily') {
       return '知乎日报';
@@ -163,6 +176,12 @@ struct Index {
       }
       return this.followTab === 'recommend' ? '关注推荐' : '关注动态';
     }
+    if (this.selectedPortalTab === 'hot') {
+      if (this.hotLoading && !this.hotHasLoaded) {
+        return '正在同步知乎热榜';
+      }
+      return this.hotItems.length > 0 ? `${this.hotItems.length} 条热门内容` : '全站热门内容';
+    }
     if (this.selectedPortalTab === 'history') {
       return this.historyItems.length > 0 ? `${this.historyItems.length} 条最近浏览` : '暂无最近浏览';
     }
@@ -178,6 +197,9 @@ struct Index {
     }
     if (tab === 'follow') {
       return '关注流待加载';
+    }
+    if (tab === 'hot') {
+      return '热榜待加载';
     }
     return '暂无最近浏览';
   }
@@ -250,7 +272,9 @@ struct Index {
   }
 
   private openSearchPage(): void {
-    this.openWebContent('搜索', SEARCH_PAGE_URL);
+    router.pushUrl({
+      url: 'pages/Search'
+    });
   }
 
   private openSelfPage(): void {
@@ -397,6 +421,52 @@ struct Index {
     }
   }
 
+  private async loadHotFirstPage(): Promise<void> {
+    if (this.hotLoading) {
+      return;
+    }
+    this.hotLoading = true;
+    this.hotError = '';
+    try {
+      const page = await HotListService.loadFirstPage(this.context());
+      this.hotItems = page.items;
+      this.hotNextUrl = page.paging.nextUrl;
+      this.hotHasLoaded = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.hotError = `热榜加载失败：${message}`;
+    } finally {
+      this.hotLoading = false;
+    }
+  }
+
+  private async loadMoreHot(): Promise<void> {
+    if (this.hotLoadingMore || this.hotNextUrl.length === 0) {
+      return;
+    }
+    this.hotLoadingMore = true;
+    try {
+      const page = await HotListService.loadNextPage(this.context(), this.hotNextUrl);
+      const existed = new Set<string>(this.hotItems.map((item: HomeFeedItem) => item.id));
+      const merged = [...this.hotItems];
+      page.items.forEach((item: HomeFeedItem) => {
+        if (!existed.has(item.id)) {
+          existed.add(item.id);
+          merged.push(item);
+        }
+      });
+      this.hotItems = merged;
+      this.hotNextUrl = page.paging.nextUrl;
+      this.hotError = '';
+      this.hotHasLoaded = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.hotError = `热榜继续加载失败：${message}`;
+    } finally {
+      this.hotLoadingMore = false;
+    }
+  }
+
   private async loadLatestDaily(): Promise<void> {
     if (this.dailyLoading) {
       return;
@@ -445,6 +515,10 @@ struct Index {
     }
     if (this.selectedPortalTab === 'follow' && this.followHasLoaded() && this.followNextUrl().length > 0) {
       this.loadMoreFollow();
+      return;
+    }
+    if (this.selectedPortalTab === 'hot' && this.hotHasLoaded && this.hotNextUrl.length > 0) {
+      this.loadMoreHot();
       return;
     }
     if (this.selectedPortalTab === 'daily' && this.dailySections.length > 0 && this.nextDailyDate.length > 0) {
@@ -1387,6 +1461,116 @@ struct Index {
   }
 
   @Builder
+  private HotPage(): void {
+    if (this.hotLoading && !this.hotHasLoaded) {
+      Column({ space: 10 }) {
+        Text('正在加载热榜...')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+        Text('正在从知乎热榜接口拉取热门内容')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120 })
+    } else if (this.hotError.length > 0 && !this.hotHasLoaded) {
+      Column({ space: 12 }) {
+        Text(this.hotError)
+          .fontSize(15)
+          .fontColor($r('app.color.error_text'))
+          .textAlign(TextAlign.Center)
+
+        Text('重新加载')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.action_text'))
+          .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .onClick(() => {
+            this.loadHotFirstPage();
+          })
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120, left: 24, right: 24 })
+    } else if (this.hotItems.length === 0) {
+      Column({ space: 10 }) {
+        Text('暂无热榜内容')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+        Text('可以稍后刷新。')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120 })
+    } else {
+      Column() {
+        Row() {
+          Text('全站热门')
+            .fontSize(13)
+            .fontColor($r('app.color.text_secondary'))
+            .layoutWeight(1)
+
+          Text('刷新')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.hotLoading ? $r('app.color.text_tertiary') : $r('app.color.action_text'))
+            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+            .backgroundColor($r('app.color.action_background'))
+            .borderRadius(16)
+            .enabled(!this.hotLoading)
+            .onClick(() => {
+              this.hotHasLoaded = false;
+              this.hotItems = [];
+              this.hotNextUrl = '';
+              this.loadHotFirstPage();
+            })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: 18, right: 18, top: 8, bottom: 12 })
+
+        ForEach(this.hotItems, (item: HomeFeedItem) => {
+          this.HomeFeedCard(item);
+        }, (item: HomeFeedItem) => item.id)
+
+        if (this.hotError.length > 0) {
+          Text(this.hotError)
+            .fontSize(12)
+            .fontColor($r('app.color.error_text'))
+            .padding({ left: 18, right: 18, top: 0, bottom: 10 })
+        }
+
+        Text(this.hotNextUrl.length === 0 ? '已经到底了' : (this.hotLoadingMore ? '正在加载更多...' : '加载更多'))
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(
+            this.hotNextUrl.length === 0 || this.hotLoadingMore
+              ? $r('app.color.text_tertiary')
+              : $r('app.color.action_text')
+          )
+          .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+          .margin({ top: 4, bottom: 20 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .enabled(this.hotNextUrl.length > 0 && !this.hotLoadingMore)
+          .onClick(() => {
+            this.loadMoreHot();
+          })
+      }
+    }
+  }
+
+  @Builder
   private FollowPage(): void {
     if (!this.sessionSnapshot.loggedIn) {
       Column({ space: 14 }) {
@@ -1653,6 +1837,8 @@ struct Index {
       this.HomePage();
     } else if (this.selectedPortalTab === 'follow') {
       this.FollowPage();
+    } else if (this.selectedPortalTab === 'hot') {
+      this.HotPage();
     } else if (this.selectedPortalTab === 'daily') {
       this.DailyPage();
     } else if (this.selectedPortalTab === 'history') {
@@ -1695,6 +1881,10 @@ struct Index {
           this.openLoginPage();
         } else if (!this.followHasLoaded()) {
           this.loadFollowFirstPage(this.followTab);
+        }
+      } else if (item.key === 'hot') {
+        if (!this.hotHasLoaded) {
+          this.loadHotFirstPage();
         }
       } else if (item.key === 'daily' && this.dailySections.length === 0) {
         this.loadLatestDaily();

@@ -25,6 +25,11 @@ export interface SessionSnapshot {
   readonly hasSigningBridge: boolean;
 }
 
+export interface TextHighlightSegment {
+  readonly text: string;
+  readonly highlighted: boolean;
+}
+
 export interface HomeFeedItem {
   readonly id: string;
   readonly type: 'answer' | 'article' | 'question' | 'pin';
@@ -38,6 +43,8 @@ export interface HomeFeedItem {
   readonly targetUrl: string;
   readonly nativeTarget?: ZhihuCommentableTarget;
   readonly actionText: string;
+  readonly titleHighlightSegments?: TextHighlightSegment[];
+  readonly summaryHighlightSegments?: TextHighlightSegment[];
 }
 
 export interface HomeFeedPaging {

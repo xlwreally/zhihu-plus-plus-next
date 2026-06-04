@@ -193,7 +193,7 @@ export class ZhihuSignerBridge {
     const cookies = ZhihuSessionRepository.load(context).cookies;
     const pathname = this.extractPathWithQuery(url);
     const source = [ZSE_93, pathname, cookies.d_c0 ?? '', body]
-      .filter((item: string | undefined) => item !== undefined && item.length > 0)
+      .filter((item: string | undefined) => item !== undefined)
       .join('+');
     const sign = this.encryptZseV4(this.md5LowerHex(source));
     const headers: Record<string, string> = {

@@ -1,7 +1,8 @@
 import { ZhihuCommentableTarget } from '../models/ZhihuContentModels';
 import common from '@ohos.app.ability.common';
-import { HomeFeedItem, HomeFeedPage } from '../models/ZhihuModels';
+import { HomeFeedItem, HomeFeedPage, TextHighlightSegment } from '../models/ZhihuModels';
 import { ZhihuApi } from './ZhihuApi';
+import { decodeHtmlEntities, stripHtmlToText } from '../utils/ZhihuHtml';
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 
@@ -43,6 +44,53 @@ export class HomeFeedService {
 
   private static arrayValue(value: JsonValue | undefined): JsonValue[] {
     return Array.isArray(value) ? value : [];
+  }
+
+  private static firstString(value: JsonValue | undefined): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      const found = value.find((item: JsonValue) => typeof item === 'string');
+      return typeof found === 'string' ? found : '';
+    }
+    return '';
+  }
+
+  private static highlightValue(rawSearchItem: JsonObject, key: string): string {
+    const highlight = this.objectValue(rawSearchItem.highlight);
+    return this.firstString(highlight[key]);
+  }
+
+  private static parseHighlightSegments(html: string): TextHighlightSegment[] {
+    const segments: TextHighlightSegment[] = [];
+    const pattern = /<em>(.*?)<\/em>/gi;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null = pattern.exec(html);
+    while (match !== null) {
+      const before = html.slice(lastIndex, match.index);
+      if (before.length > 0) {
+        const text = stripHtmlToText(before);
+        if (text.length > 0) {
+          segments.push({ text, highlighted: false });
+        }
+      }
+      const highlightedText = decodeHtmlEntities(match[1].replace(/<[^>]+>/g, ''));
+      if (highlightedText.length > 0) {
+        segments.push({ text: highlightedText, highlighted: true });
+      }
+      lastIndex = match.index + match[0].length;
+      match = pattern.exec(html);
+    }
+
+    const after = html.slice(lastIndex);
+    if (after.length > 0) {
+      const text = stripHtmlToText(after);
+      if (text.length > 0) {
+        segments.push({ text, highlighted: false });
+      }
+    }
+    return segments;
   }
 
   private static joinDetails(base: string, actionText: string): string {
@@ -219,6 +267,28 @@ export class HomeFeedService {
         .map((item: JsonValue) => this.objectValue(item))
         .flatMap((item: JsonObject) => this.mapRawFeed(item));
     }
+    if (type === 'hot_list_feed') {
+      const target = this.objectValue(rawFeed.target);
+      const children = this.arrayValue(rawFeed.children);
+      const childThumbnail = children.length > 0 ? this.stringValue(this.objectValue(children[0]).thumbnail) : '';
+      const mapped = this.mapTarget(target, {
+        ...rawFeed,
+        action_text: this.stringValue(rawFeed.detail_text) || this.stringValue(rawFeed.detailText),
+        children
+      });
+      if (mapped === undefined || mapped.title.length === 0 || mapped.targetUrl.length === 0) {
+        return [];
+      }
+      return [{
+        ...mapped,
+        id: `hot:${mapped.id}`,
+        authorName: '',
+        authorHeadline: '',
+        authorAvatarUrl: '',
+        thumbnailUrl: childThumbnail.length > 0 ? childThumbnail : mapped.thumbnailUrl,
+        actionText: mapped.actionText.length > 0 ? mapped.actionText : '热榜'
+      }];
+    }
     if (type === 'feed_advert' || type === 'zvideo' || type.length === 0) {
       return [];
     }
@@ -243,6 +313,53 @@ export class HomeFeedService {
         nextUrl: this.stringValue(paging.next)
       }
     };
+  }
+
+  static mapSearchPage(payload: Object): HomeFeedPage {
+    const jsonPayload = payload as JsonObject;
+    const data = this.arrayValue(jsonPayload.data);
+    const items = data
+      .map((item: JsonValue) => this.objectValue(item))
+      .flatMap((item: JsonObject): HomeFeedItem[] => {
+        if (this.stringValue(item.type) !== 'search_result') {
+          return [];
+        }
+        const target = this.objectValue(item.object);
+        const rawFeed: JsonObject = {
+          id: this.idValue(item.id),
+          target,
+          action_text: '搜索结果'
+        };
+        const mapped = this.mapTarget(target, rawFeed);
+        if (mapped === undefined || mapped.title.length === 0 || mapped.targetUrl.length === 0) {
+          return [];
+        }
+        const titleHighlight = this.highlightValue(item, 'title');
+        const summaryHighlight = this.highlightValue(item, 'description') || this.highlightValue(item, 'excerpt');
+        const titleHighlightSegments = titleHighlight.length > 0 ? this.parseHighlightSegments(titleHighlight) : undefined;
+        const summaryHighlightSegments = summaryHighlight.length > 0 ? this.parseHighlightSegments(summaryHighlight) : undefined;
+        return [{
+          ...mapped,
+          id: `search:${mapped.id}`,
+          title: titleHighlight.length > 0 ? stripHtmlToText(titleHighlight) : stripHtmlToText(mapped.title),
+          summary: summaryHighlight.length > 0 ? stripHtmlToText(summaryHighlight) : stripHtmlToText(mapped.summary),
+          titleHighlightSegments,
+          summaryHighlightSegments,
+          actionText: mapped.actionText.length > 0 ? mapped.actionText : '搜索结果'
+        }];
+      });
+    const paging = this.objectValue(jsonPayload.paging);
+    return {
+      items,
+      paging: {
+        isEnd: paging.is_end === true,
+        nextUrl: this.stringValue(paging.next)
+      }
+    };
+  }
+
+  static mapHotListPage(payload: Object): HomeFeedPage {
+    return this.mapPage(payload as JsonObject);
   }
 
   static async loadFirstPage(context: common.Context): Promise<HomeFeedPage> {
