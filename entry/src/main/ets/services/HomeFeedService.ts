@@ -246,15 +246,15 @@ export class HomeFeedService {
   }
 
   static async loadFirstPage(context: common.Context): Promise<HomeFeedPage> {
-    const payload = await ZhihuApi.getJson(context, this.INITIAL_URL, { signed: true });
-    if (payload === null) {
-      throw new Error('主页内容为空');
-    }
-    return this.mapPage(payload as JsonObject);
+    return this.loadSignedPage(context, this.INITIAL_URL);
   }
 
   static async loadNextPage(context: common.Context, nextUrl: string): Promise<HomeFeedPage> {
-    const payload = await ZhihuApi.getJson(context, nextUrl, { signed: true });
+    return this.loadSignedPage(context, nextUrl);
+  }
+
+  static async loadSignedPage(context: common.Context, url: string): Promise<HomeFeedPage> {
+    const payload = await ZhihuApi.getJson(context, url, { signed: true });
     if (payload === null) {
       throw new Error('主页内容为空');
     }

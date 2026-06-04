@@ -8,6 +8,8 @@ import { LocalDebugSessionService } from '../services/LocalDebugSessionService';
 import { resolveZhihuContent } from '../services/ZhihuContentResolver';
 import { ZhihuSessionRepository } from '../services/ZhihuSessionRepository';
 import { AppearanceSettingsRepository, AppearanceThemeMode } from '../services/AppearanceSettingsRepository';
+import { FollowFeedService, FollowFeedTab } from '../services/FollowFeedService';
+import { BrowsingHistoryRepository } from '../services/BrowsingHistoryRepository';
 
 type AppPortalKey = 'home' | 'follow' | 'daily' | 'history';
 
@@ -26,6 +28,11 @@ interface ThemeModeOptionItem {
   readonly label: string;
 }
 
+interface FollowFeedTabOption {
+  readonly key: FollowFeedTab;
+  readonly title: string;
+}
+
 const TOP_BAR_BASE_PADDING: number = 10;
 const TOP_BAR_SCROLL_INSET: number = 68;
 const BOTTOM_PORTAL_BAR_CONTENT_INSET: number = 84;
@@ -42,6 +49,10 @@ const APP_PORTAL_TABS: AppPortalOption[] = [
   { key: 'follow', title: '关注' },
   { key: 'daily', title: '日报' },
   { key: 'history', title: '历史' }
+];
+const FOLLOW_FEED_TABS: FollowFeedTabOption[] = [
+  { key: 'recommend', title: '推荐' },
+  { key: 'dynamic', title: '动态' }
 ];
 
 @Entry
@@ -63,12 +74,27 @@ struct Index {
   @State private homeError: string = '';
   @State private homeNextUrl: string = '';
   @State private homeHasLoaded: boolean = false;
+  @State private followTab: FollowFeedTab = 'recommend';
+  @State private followRecommendItems: HomeFeedItem[] = [];
+  @State private followRecommendLoading: boolean = false;
+  @State private followRecommendLoadingMore: boolean = false;
+  @State private followRecommendError: string = '';
+  @State private followRecommendNextUrl: string = '';
+  @State private followRecommendHasLoaded: boolean = false;
+  @State private followDynamicItems: HomeFeedItem[] = [];
+  @State private followDynamicLoading: boolean = false;
+  @State private followDynamicLoadingMore: boolean = false;
+  @State private followDynamicError: string = '';
+  @State private followDynamicNextUrl: string = '';
+  @State private followDynamicHasLoaded: boolean = false;
+  @State private historyItems: HomeFeedItem[] = [];
   @State private showHomeAccountPanel: boolean = false;
   @State private showAppearanceSettingsPanel: boolean = false;
 
   aboutToAppear(): void {
     AppearanceSettingsRepository.load(this.context());
     ZhihuSessionRepository.load(this.context());
+    this.loadHistoryItems();
     this.applyLocalDebugSession();
     this.loadLatestDaily();
   }
@@ -76,6 +102,12 @@ struct Index {
   onPageShow(): void {
     if (this.selectedPortalTab === 'home' && this.sessionSnapshot.loggedIn && !this.homeHasLoaded) {
       this.loadHomeFirstPage();
+    }
+    if (this.selectedPortalTab === 'follow' && this.sessionSnapshot.loggedIn && !this.followHasLoaded()) {
+      this.loadFollowFirstPage(this.followTab);
+    }
+    if (this.selectedPortalTab === 'history') {
+      this.loadHistoryItems();
     }
   }
 
@@ -97,8 +129,14 @@ struct Index {
     if (tab === 'home') {
       return '知乎首页';
     }
+    if (tab === 'follow') {
+      return '关注';
+    }
     if (tab === 'daily') {
       return '知乎日报';
+    }
+    if (tab === 'history') {
+      return '历史';
     }
     const selected = APP_PORTAL_TABS.find((item: AppPortalOption) => item.key === tab);
     if (selected !== undefined) {
@@ -117,8 +155,14 @@ struct Index {
       }
       return this.sessionSnapshot.accountName;
     }
-    if (this.selectedPortalTab !== 'daily') {
-      return this.portalPlaceholder(this.selectedPortalTab);
+    if (this.selectedPortalTab === 'follow') {
+      if (!this.sessionSnapshot.loggedIn) {
+        return '登录后查看关注流';
+      }
+      return this.followTab === 'recommend' ? '关注推荐' : '关注动态';
+    }
+    if (this.selectedPortalTab === 'history') {
+      return this.historyItems.length > 0 ? `${this.historyItems.length} 条最近浏览` : '暂无最近浏览';
     }
     if (this.dailySections.length > 0) {
       return this.dateLabel(this.dailySections[0].date);
@@ -131,9 +175,9 @@ struct Index {
       return '主页推荐流待加载';
     }
     if (tab === 'follow') {
-      return '关注入口待迁移';
+      return '关注流待加载';
     }
-    return '历史入口待迁移';
+    return '暂无最近浏览';
   }
 
   private dateLabel(date: string): string {
@@ -149,9 +193,12 @@ struct Index {
     });
   }
 
-  private openWebContent(title: string, url: string): void {
+  private openWebContent(title: string, url: string, recordHistory: boolean = false): void {
     if (url.length === 0) {
       return;
+    }
+    if (recordHistory) {
+      this.historyItems = BrowsingHistoryRepository.recordWeb(this.context(), title, url);
     }
     router.pushUrl({
       url: 'pages/WebContent',
@@ -159,7 +206,15 @@ struct Index {
     });
   }
 
-  private openNativeArticle(target: ZhihuCommentableTarget, fallbackTitle: string, fallbackUrl: string): void {
+  private openNativeArticle(
+    target: ZhihuCommentableTarget,
+    fallbackTitle: string,
+    fallbackUrl: string,
+    recordHistory: boolean = true
+  ): void {
+    if (recordHistory) {
+      this.historyItems = BrowsingHistoryRepository.recordContent(this.context(), target, fallbackTitle, fallbackUrl);
+    }
     router.pushUrl({
       url: 'pages/Article',
       params: {
@@ -176,7 +231,7 @@ struct Index {
       this.openNativeArticle(nativeTarget, item.title, item.url);
       return;
     }
-    this.openWebContent(item.title, item.url);
+    this.openWebContent(item.title, item.url, true);
   }
 
   private openHomeFeedItem(item: HomeFeedItem): void {
@@ -189,7 +244,7 @@ struct Index {
       this.openNativeArticle(resolved, item.title, item.targetUrl);
       return;
     }
-    this.openWebContent(item.title, item.targetUrl);
+    this.openWebContent(item.title, item.targetUrl, true);
   }
 
   private openSearchPage(): void {
@@ -252,6 +307,47 @@ struct Index {
     this.homeError = '';
     this.homeNextUrl = '';
     this.homeHasLoaded = false;
+    this.followRecommendItems = [];
+    this.followRecommendError = '';
+    this.followRecommendNextUrl = '';
+    this.followRecommendHasLoaded = false;
+    this.followDynamicItems = [];
+    this.followDynamicError = '';
+    this.followDynamicNextUrl = '';
+    this.followDynamicHasLoaded = false;
+  }
+
+  private loadHistoryItems(): void {
+    this.historyItems = BrowsingHistoryRepository.load(this.context());
+  }
+
+  private clearHistoryItems(): void {
+    this.historyItems = BrowsingHistoryRepository.clear(this.context());
+  }
+
+  private followItems(): HomeFeedItem[] {
+    return this.followTab === 'recommend' ? this.followRecommendItems : this.followDynamicItems;
+  }
+
+  private followLoading(): boolean {
+    return this.followTab === 'recommend' ? this.followRecommendLoading : this.followDynamicLoading;
+  }
+
+  private followLoadingMore(): boolean {
+    return this.followTab === 'recommend' ? this.followRecommendLoadingMore : this.followDynamicLoadingMore;
+  }
+
+  private followError(): string {
+    return this.followTab === 'recommend' ? this.followRecommendError : this.followDynamicError;
+  }
+
+  private followNextUrl(): string {
+    return this.followTab === 'recommend' ? this.followRecommendNextUrl : this.followDynamicNextUrl;
+  }
+
+  private followHasLoaded(tab?: FollowFeedTab): boolean {
+    const selectedTab = tab ?? this.followTab;
+    return selectedTab === 'recommend' ? this.followRecommendHasLoaded : this.followDynamicHasLoaded;
   }
 
   private async loadHomeFirstPage(): Promise<void> {
@@ -343,6 +439,10 @@ struct Index {
     }
     if (this.selectedPortalTab === 'home' && this.homeHasLoaded && this.homeNextUrl.length > 0) {
       this.loadMoreHome();
+      return;
+    }
+    if (this.selectedPortalTab === 'follow' && this.followHasLoaded() && this.followNextUrl().length > 0) {
+      this.loadMoreFollow();
       return;
     }
     if (this.selectedPortalTab === 'daily' && this.dailySections.length > 0 && this.nextDailyDate.length > 0) {
@@ -773,6 +873,100 @@ struct Index {
     .backgroundColor($r('app.color.page_background'))
   }
 
+  private async loadFollowFirstPage(tab: FollowFeedTab): Promise<void> {
+    if (!this.sessionSnapshot.loggedIn) {
+      return;
+    }
+    if (tab === 'recommend') {
+      if (this.followRecommendLoading) {
+        return;
+      }
+      this.followRecommendLoading = true;
+      this.followRecommendError = '';
+      try {
+        const page = await FollowFeedService.loadFirstPage(this.context(), tab);
+        this.followRecommendItems = page.items;
+        this.followRecommendNextUrl = page.paging.nextUrl;
+        this.followRecommendHasLoaded = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        this.followRecommendError = `关注推荐加载失败：${message}`;
+      } finally {
+        this.followRecommendLoading = false;
+      }
+      return;
+    }
+
+    if (this.followDynamicLoading) {
+      return;
+    }
+    this.followDynamicLoading = true;
+    this.followDynamicError = '';
+    try {
+      const page = await FollowFeedService.loadFirstPage(this.context(), tab);
+      this.followDynamicItems = page.items;
+      this.followDynamicNextUrl = page.paging.nextUrl;
+      this.followDynamicHasLoaded = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.followDynamicError = `关注动态加载失败：${message}`;
+    } finally {
+      this.followDynamicLoading = false;
+    }
+  }
+
+  private async loadMoreFollow(): Promise<void> {
+    const nextUrl = this.followNextUrl();
+    if (this.followLoadingMore() || nextUrl.length === 0) {
+      return;
+    }
+
+    if (this.followTab === 'recommend') {
+      this.followRecommendLoadingMore = true;
+      try {
+        const page = await FollowFeedService.loadNextPage(this.context(), nextUrl);
+        const existed = new Set<string>(this.followRecommendItems.map((item: HomeFeedItem) => item.id));
+        const merged = [...this.followRecommendItems];
+        page.items.forEach((item: HomeFeedItem) => {
+          if (!existed.has(item.id)) {
+            merged.push(item);
+          }
+        });
+        this.followRecommendItems = merged;
+        this.followRecommendNextUrl = page.paging.nextUrl;
+        this.followRecommendError = '';
+        this.followRecommendHasLoaded = true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        this.followRecommendError = `关注推荐继续加载失败：${message}`;
+      } finally {
+        this.followRecommendLoadingMore = false;
+      }
+      return;
+    }
+
+    this.followDynamicLoadingMore = true;
+    try {
+      const page = await FollowFeedService.loadNextPage(this.context(), nextUrl);
+      const existed = new Set<string>(this.followDynamicItems.map((item: HomeFeedItem) => item.id));
+      const merged = [...this.followDynamicItems];
+      page.items.forEach((item: HomeFeedItem) => {
+        if (!existed.has(item.id)) {
+          merged.push(item);
+        }
+      });
+      this.followDynamicItems = merged;
+      this.followDynamicNextUrl = page.paging.nextUrl;
+      this.followDynamicError = '';
+      this.followDynamicHasLoaded = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      this.followDynamicError = `关注动态继续加载失败：${message}`;
+    } finally {
+      this.followDynamicLoadingMore = false;
+    }
+  }
+
   @Builder
   private ThemeModeOption(mode: AppearanceThemeMode, label: string): void {
     Text(label)
@@ -1149,6 +1343,208 @@ struct Index {
   }
 
   @Builder
+  private FollowTabChip(option: FollowFeedTabOption): void {
+    Text(option.title)
+      .fontSize(14)
+      .fontWeight(this.followTab === option.key ? FontWeight.Bold : FontWeight.Medium)
+      .fontColor(this.followTab === option.key ? $r('app.color.tab_selected_text') : $r('app.color.text_secondary'))
+      .textAlign(TextAlign.Center)
+      .layoutWeight(1)
+      .padding({ top: 10, bottom: 10 })
+      .backgroundColor(this.followTab === option.key ? $r('app.color.tab_selected_background') : '#00000000')
+      .border({
+        width: this.followTab === option.key ? 1 : 0,
+        color: this.followTab === option.key ? $r('app.color.tab_selected_border') : '#00000000'
+      })
+      .borderRadius(16)
+      .onClick(() => {
+        this.followTab = option.key;
+        if (this.sessionSnapshot.loggedIn && !this.followHasLoaded(option.key)) {
+          this.loadFollowFirstPage(option.key);
+        }
+      })
+  }
+
+  @Builder
+  private FollowPage(): void {
+    if (!this.sessionSnapshot.loggedIn) {
+      Column({ space: 14 }) {
+        Text('需要先登录知乎')
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+
+        Text('关注推荐与动态依赖登录 Cookie 和签名请求。')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+
+        Text('去登录')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.action_text'))
+          .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.action_background'))
+          .borderRadius(18)
+          .onClick(() => {
+            this.openLoginPage();
+          })
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120, left: 30, right: 30 })
+    } else {
+      Column({ space: 12 }) {
+        Row({ space: 8 }) {
+          ForEach(FOLLOW_FEED_TABS, (option: FollowFeedTabOption) => {
+            this.FollowTabChip(option);
+          }, (option: FollowFeedTabOption) => option.key)
+        }
+        .width('100%')
+        .padding({ left: 18, right: 18, top: 4, bottom: 4 })
+
+        if (this.followLoading() && !this.followHasLoaded()) {
+          Column({ space: 10 }) {
+            Text('正在加载关注流...')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_primary'))
+            Text(this.followTab === 'recommend' ? '正在同步关注推荐内容' : '正在同步关注动态')
+              .fontSize(13)
+              .fontColor($r('app.color.text_secondary'))
+          }
+          .alignItems(HorizontalAlign.Center)
+          .justifyContent(FlexAlign.Center)
+          .width('100%')
+          .padding({ top: 96 })
+        } else if (this.followError().length > 0 && !this.followHasLoaded()) {
+          Column({ space: 12 }) {
+            Text(this.followError())
+              .fontSize(15)
+              .fontColor($r('app.color.error_text'))
+              .textAlign(TextAlign.Center)
+
+            Text('重新加载')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.action_text'))
+              .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+              .backgroundColor($r('app.color.action_background'))
+              .borderRadius(18)
+              .onClick(() => {
+                this.loadFollowFirstPage(this.followTab);
+              })
+          }
+          .alignItems(HorizontalAlign.Center)
+          .justifyContent(FlexAlign.Center)
+          .width('100%')
+          .padding({ top: 96, left: 24, right: 24 })
+        } else if (this.followItems().length === 0) {
+          Column({ space: 10 }) {
+            Text('暂无关注内容')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor($r('app.color.text_primary'))
+            Text('可以稍后刷新，或切换另一个关注子页。')
+              .fontSize(13)
+              .fontColor($r('app.color.text_secondary'))
+          }
+          .alignItems(HorizontalAlign.Center)
+          .justifyContent(FlexAlign.Center)
+          .width('100%')
+          .padding({ top: 96 })
+        } else {
+          Column() {
+            ForEach(this.followItems(), (item: HomeFeedItem) => {
+              this.HomeFeedCard(item);
+            }, (item: HomeFeedItem) => item.id)
+
+            if (this.followError().length > 0) {
+              Text(this.followError())
+                .fontSize(12)
+                .fontColor($r('app.color.error_text'))
+                .padding({ left: 18, right: 18, top: 0, bottom: 10 })
+            }
+
+            Text(this.followNextUrl().length === 0 ? '已经到底了' : (this.followLoadingMore() ? '正在加载更多...' : '加载更多'))
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(
+                this.followNextUrl().length === 0 || this.followLoadingMore()
+                  ? $r('app.color.text_tertiary')
+                  : $r('app.color.action_text')
+              )
+              .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+              .margin({ top: 4, bottom: 20 })
+              .backgroundColor($r('app.color.action_background'))
+              .borderRadius(18)
+              .enabled(this.followNextUrl().length > 0 && !this.followLoadingMore())
+              .onClick(() => {
+                this.loadMoreFollow();
+              })
+          }
+        }
+      }
+      .width('100%')
+    }
+  }
+
+  @Builder
+  private HistoryPage(): void {
+    if (this.historyItems.length === 0) {
+      Column({ space: 12 }) {
+        Text('暂无最近浏览')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+
+        Text('从主页、关注或日报打开内容后，会在这里显示。')
+          .fontSize(13)
+          .fontColor($r('app.color.text_secondary'))
+          .textAlign(TextAlign.Center)
+      }
+      .alignItems(HorizontalAlign.Center)
+      .justifyContent(FlexAlign.Center)
+      .width('100%')
+      .padding({ top: 120, left: 28, right: 28 })
+    } else {
+      Column({ space: 10 }) {
+        Row() {
+          Text('最近浏览')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
+            .layoutWeight(1)
+
+          Text('清空')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor($r('app.color.text_secondary'))
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor($r('app.color.card_background'))
+            .border({ width: 1, color: $r('app.color.card_border') })
+            .borderRadius(16)
+            .onClick(() => {
+              this.clearHistoryItems();
+            })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: 18, right: 18, top: 4, bottom: 2 })
+
+        ForEach(this.historyItems, (item: HomeFeedItem) => {
+          this.HomeFeedCard(item);
+        }, (item: HomeFeedItem) => item.id)
+
+        Column()
+          .height(20)
+          .width('100%')
+      }
+      .width('100%')
+    }
+  }
+
+  @Builder
   private DailyPage(): void {
     if (this.dailyLoading && this.dailySections.length === 0) {
       Column({ space: 10 }) {
@@ -1242,8 +1638,12 @@ struct Index {
   private ContentArea(): void {
     if (this.selectedPortalTab === 'home') {
       this.HomePage();
+    } else if (this.selectedPortalTab === 'follow') {
+      this.FollowPage();
     } else if (this.selectedPortalTab === 'daily') {
       this.DailyPage();
+    } else if (this.selectedPortalTab === 'history') {
+      this.HistoryPage();
     } else {
       this.PlaceholderPage();
     }
@@ -1277,8 +1677,16 @@ struct Index {
         } else if (!this.homeHasLoaded) {
           this.loadHomeFirstPage();
         }
+      } else if (item.key === 'follow') {
+        if (!this.sessionSnapshot.loggedIn) {
+          this.openLoginPage();
+        } else if (!this.followHasLoaded()) {
+          this.loadFollowFirstPage(this.followTab);
+        }
       } else if (item.key === 'daily' && this.dailySections.length === 0) {
         this.loadLatestDaily();
+      } else if (item.key === 'history') {
+        this.loadHistoryItems();
       }
     })
   }

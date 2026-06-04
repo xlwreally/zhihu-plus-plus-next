@@ -17,6 +17,7 @@ import { SessionSnapshot, DEFAULT_SESSION_SNAPSHOT } from '../models/ZhihuModels
 import { ZhihuRichWeb } from '../components/ZhihuRichWeb';
 import { ArticleDetailService } from '../services/ArticleDetailService';
 import { AppearanceThemeMode } from '../services/AppearanceSettingsRepository';
+import { BrowsingHistoryRepository } from '../services/BrowsingHistoryRepository';
 import { CommentService } from '../services/CommentService';
 import { resolveZhihuContent } from '../services/ZhihuContentResolver';
 import { buildArticleHtmlDocument, escapeHtml } from '../utils/ZhihuHtml';
@@ -253,6 +254,7 @@ struct Article {
       const detail = await ArticleDetailService.loadDetail(this.context(), rootTargetValue);
       this.detail = detail;
       this.pageTitle = detail.title;
+      BrowsingHistoryRepository.recordContent(this.context(), detail.target, detail.title, detail.browserUrl, detail.excerpt);
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误';
       this.articleError = `详情加载失败：${message}`;
